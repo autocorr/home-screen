@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Home Screen</title>
+  <meta name="description" content="Clocks, VLA sky positions and Socorro weather">
+  <meta name="theme-color" content="#f5f0e6" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📡</text></svg>">
+  <link rel="preconnect" href="https://api.open-meteo.com" crossorigin>
+  <link rel="preconnect" href="https://air-quality-api.open-meteo.com" crossorigin>
+  <script>
+    // Apply a saved theme override before first paint (avoids a flash).
+    try { const t = JSON.parse(localStorage.getItem('settings:v1'))?.theme;
+      if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch {}
+  </script>
+  <link rel="stylesheet" href="vendor/uPlot.min.css">
+  <link rel="stylesheet" href="css/style.css">
+  <script src="vendor/uPlot.iife.min.js" defer></script>
+  <script src="vendor/astronomy.browser.min.js" defer></script>
+  <script type="module" src="js/main.js"></script>
+</head>
+<body>
+<main>
+  <!-- Each section: data-section id (see SECTIONS in js/config.js), a .section-toggle
+       heading button, and a .section-body that collapses. -->
+  <section id="clocks" data-section="clocks" class="block" aria-labelledby="clocks-h">
+    <header class="section-head">
+      <h2 id="clocks-h"><button class="section-toggle" aria-expanded="true" aria-controls="clocks-body">Clocks</button></h2>
+    </header>
+    <div class="section-body clocks" id="clocks-body">
+      <div class="clock">
+        <div class="clock-label" id="clk-mt-zone">MT</div>
+        <div class="clock-time" id="clk-mt">--:--:--</div>
+        <div class="clock-sub" id="clk-mt-date"></div>
+      </div>
+      <div class="clock">
+        <div class="clock-label">UTC</div>
+        <div class="clock-time" id="clk-utc">--:--:--</div>
+        <div class="clock-sub" id="clk-utc-date"></div>
+      </div>
+      <div class="clock">
+        <div class="clock-label">LST · VLA</div>
+        <div class="clock-time" id="clk-lst">--:--:--</div>
+        <div class="clock-sub" id="clk-mjd"></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="world" data-section="world" class="block" aria-labelledby="world-h">
+    <header class="section-head">
+      <h2 id="world-h"><button class="section-toggle" aria-expanded="true" aria-controls="world-clocks">World time</button></h2>
+    </header>
+    <div id="world-clocks" class="section-body clocks"></div>
+  </section>
+
+  <section id="sky" data-section="sky" class="panel" aria-labelledby="sky-h">
+    <header class="section-head">
+      <h2 id="sky-h"><button class="section-toggle" aria-expanded="true" aria-controls="sky-body">Sky at the VLA</button></h2>
+      <div class="seg head-controls" id="sky-tz" role="group" aria-label="Time axis">
+        <button data-tz="America/Denver">MT</button><button data-tz="UTC">UTC</button>
+      </div>
+    </header>
+    <div class="section-body" id="sky-body">
+      <div class="table-wrap">
+        <table id="sky-table">
+          <thead><tr><th title="Positions are geometric (no refraction). Rise/set: sources use the 8° VLA limit; Sun and Moon the horizon.">Target</th><th>El</th><th>Az</th><th>HA</th><th title="Angular distance from the Sun">Sun sep</th><th class="col-next">Next</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="sky-grid">
+        <figure class="chart-card polar-card">
+          <figcaption title="Zenith at centre, North up, East right. Hover or drag a plot to read positions at that time.">Sky view <span class="unit">(N up, E right · solid next 12 h, dotted past · dashed ring 8°)</span></figcaption>
+          <svg id="sky-polar" viewBox="0 0 400 400" role="img" aria-label="Polar plot of source positions"></svg>
+          <p id="sky-polar-info" class="polar-info"></p>
+        </figure>
+        <div class="sky-series">
+          <figure class="chart-card"><figcaption>Elevation</figcaption><div class="chart" id="sky-el"></div></figure>
+          <figure class="chart-card"><figcaption>Azimuth <span class="unit">(while above horizon)</span></figcaption><div class="chart" id="sky-az"></div></figure>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="weather" data-section="weather" class="panel" aria-labelledby="wx-h">
+    <header class="section-head">
+      <h2 id="wx-h"><button class="section-toggle" aria-expanded="true" aria-controls="wx-body">Weather · Socorro</button></h2>
+      <div class="controls head-controls">
+        <div class="seg" id="wx-units" role="group" aria-label="Units">
+          <button data-units="imperial">°F</button><button data-units="metric">°C</button>
+        </div>
+        <button id="wx-refresh" class="icon-btn" title="Refresh now" aria-label="Refresh weather">↻</button>
+      </div>
+    </header>
+    <div class="section-body" id="wx-body">
+      <div id="wx-now" class="tiles"></div>
+      <div id="wx-daily" class="daily"></div>
+      <div class="panel-sub">
+        <p id="wx-status" class="note">Loading…</p>
+        <div class="seg" id="wx-range" role="group" aria-label="Time range">
+          <button data-range="12h">12 h</button><button data-range="24h">24 h</button><button data-range="2d">2 d</button><button data-range="4d">4 d</button><button data-range="7d">7 d</button><button data-range="all">All</button>
+        </div>
+      </div>
+      <div id="wx-charts" class="chart-grid"></div>
+    </div>
+  </section>
+
+  <section id="links" data-section="links" class="panel" aria-labelledby="links-h">
+    <header class="section-head">
+      <h2 id="links-h"><button class="section-toggle" aria-expanded="true" aria-controls="links-list">Links</button></h2>
+    </header>
+    <div id="links-list" class="section-body"></div>
+  </section>
+
+  <footer class="site-footer">
+    <button type="button" id="open-settings" class="btn">⚙ Settings</button>
+    <p class="note">Weather &amp; air quality: <a href="https://open-meteo.com/">Open-Meteo</a> (CC BY 4.0). Positions: <a href="https://github.com/cosinekitty/astronomy">Astronomy Engine</a>. Charts: <a href="https://github.com/leeoniya/uPlot">uPlot</a>.</p>
+  </footer>
+</main>
+
+<dialog id="settings" aria-labelledby="settings-h">
+  <form method="dialog" class="settings">
+    <header class="panel-head">
+      <h2 id="settings-h">Settings</h2>
+      <button class="icon-btn" value="close" aria-label="Close">✕</button>
+    </header>
+    <div class="set-row">
+      <h3>Theme</h3>
+      <div class="seg" id="set-theme" role="group" aria-label="Theme">
+        <button type="button" data-theme="auto">Auto</button><button type="button" data-theme="light">Light</button><button type="button" data-theme="dark">Dark</button>
+      </div>
+    </div>
+    <div>
+      <h3>Sections</h3>
+      <p class="note">Order and visibility. Tap a section's heading on the page to collapse it. Saved in this browser.</p>
+      <ol id="set-sections" class="set-sections"></ol>
+    </div>
+    <div class="set-actions">
+      <button type="button" id="set-expand-all" class="btn">Expand all</button>
+      <button type="button" id="set-clear-cache" class="btn">Clear weather cache</button>
+      <button type="button" id="set-reset" class="btn">Reset to defaults</button>
+    </div>
+  </form>
+</dialog>
+</body>
+</html>
