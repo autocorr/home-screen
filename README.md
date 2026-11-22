@@ -14,10 +14,10 @@ Sections can be collapsed by tapping their heading, and reordered or hidden with
   [Open-Meteo](https://open-meteo.com/) (temperature, precipitation, cloud layers, wind,
   humidity, precipitable water, pressure, UV, solar radiation, visibility, CAPE,
   freezing level, AQI, particulates, gases, AOD).
-- **Precipitation map**: forecast precipitation rate (HRRR, RRFS or NBM) over a cut-out
+- **Precipitation map**: forecast precipitation rate (RRFS or NBM) over a cut-out
   around Socorro and the VLA, from Open-Meteo's spatial files on AWS, drawn with
   [MapLibre](https://maplibre.org/) on an OpenStreetMap basemap (streets, OSM or topo).
-  It has a time slider with playback, and you can tap the map to read the value at a point.
+  It has a time slider with playback and one-step ‹ › buttons, and you can tap the map to read the value at a point.
 - **Links**: placeholders. Edit `LINKS` in `site/js/config.js`.
 
 The theme follows the OS light/dark preference by default; Settings can override it.
@@ -80,7 +80,7 @@ becomes visible, the page reads each model's `meta.json`
 CORS-enabled and not rate-limited. A dataset is refetched only when a model has a
 `last_run_availability_time` newer than our copy:
 
-- **Forecast:** watches HRRR, RRFS, NBM and GFS, so it refreshes about hourly.
+- **Forecast:** watches RRFS, NBM and GFS, so it refreshes about hourly.
 - **Air quality:** watches CAMS, so it refreshes about every 12 h.
 
 Fallbacks:
@@ -111,7 +111,7 @@ an older run, which stays on S3 for a while, at a given valid time. The run's
 (`openmeteo.s3.amazonaws.com/data_spatial/<model>/<run>/<time>.om`). Each file is about 100 MB and holds
 every variable for the whole model domain. The reader fetches only the byte ranges
 for `precipitation` inside `PRECIP_MAP.bounds` (`site/js/config.js`), in 64 kB blocks.
-That is about 200–250 kB per frame for HRRR. Tiles are rendered in the browser.
+That is about 200–250 kB per frame. Tiles are rendered in the browser.
 Data outside the cut-out is never downloaded or drawn.
 
 **Fetch budget.**

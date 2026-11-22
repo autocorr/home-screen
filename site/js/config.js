@@ -44,7 +44,7 @@ export const PRECIP_MAP = {
   // 'turbo' (Google Turbo, see js/map/colormaps.js) or 'default' (Open-Meteo's palette).
   colormap: 'turbo',
   models: [
-    { id: 'ncep_hrrr_conus', label: 'HRRR', title: 'NOAA HRRR, 3 km, hourly runs, 48 h' },
+    // First entry is the default.
     { id: 'ncep_rrfs_conus', label: 'RRFS', title: 'NOAA RRFS, 3 km, 84 h' },
     { id: 'ncep_nbm_conus', label: 'NBM', title: 'NOAA National Blend of Models, 2.5 km, 11 days' },
   ],

@@ -66,7 +66,7 @@ const store = {
 // the air-quality model. A newer run of any of them triggers a refetch.
 const RUN_SOURCES = {
   forecast: { host: 'api.open-meteo.com',
-    models: ['ncep_hrrr_conus', 'ncep_rrfs_conus', 'ncep_nbm_conus', 'ncep_gfs013'] },
+    models: ['ncep_rrfs_conus', 'ncep_nbm_conus', 'ncep_gfs013'] },
   air: { host: 'air-quality-api.open-meteo.com', models: ['cams_global'] },
 };
 const META_CHECK_MIN = 5;  // don't poll metadata more often than this
@@ -346,7 +346,7 @@ const ago = (ms) => {
 };
 
 const RUN_NAMES = {
-  ncep_hrrr_conus: 'HRRR', ncep_rrfs_conus: 'RRFS', ncep_nbm_conus: 'NBM', ncep_gfs013: 'GFS',
+  ncep_rrfs_conus: 'RRFS', ncep_nbm_conus: 'NBM', ncep_gfs013: 'GFS',
   cams_global: 'CAMS',
 };
 const runLabel = (r) => r && `${RUN_NAMES[r.model] ?? r.model} ${new Date(r.init * 1000).toISOString().slice(11, 13)}Z`;

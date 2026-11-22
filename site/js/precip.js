@@ -17,7 +17,10 @@ const POLL_TICK_MS = 60e3;   // how often to ask the layer if latest.json is due
 
 const prefs = (() => {
   let p; try { p = JSON.parse(localStorage.getItem(PREFS_KEY)); } catch { p = null; }
-  return { model: PRECIP_MAP.models[0].id, basemap: DEFAULT_BASEMAP, ...p };
+  const out = { model: PRECIP_MAP.models[0].id, basemap: DEFAULT_BASEMAP, ...p };
+  // A saved model that is no longer offered falls back to the default.
+  if (!PRECIP_MAP.models.some((m) => m.id === out.model)) out.model = PRECIP_MAP.models[0].id;
+  return out;
 })();
 const savePrefs = () => { try { localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)); } catch { /* ignore */ } };
 
@@ -79,6 +82,12 @@ function syncTimeline() {
   times = view.times();
   els.slider.max = String(Math.max(0, times.length - 1));
   els.slider.disabled = times.length < 2;
+  syncStepButtons();
+}
+
+function syncStepButtons() {
+  els.prev.disabled = idx <= 0;
+  els.next.disabled = idx >= times.length - 1;
 }
 
 function nowIndex() {
@@ -92,6 +101,7 @@ async function show(i) {
   if (!times.length) return;
   idx = Math.max(0, Math.min(times.length - 1, i));
   els.slider.value = String(idx);
+  syncStepButtons();
   const t = times[idx];
   const frame = view.frameOf(layer.id, t);
   const lead = layer.run ? Math.round((t - layer.run) / 3600e3) : null;
@@ -237,7 +247,7 @@ export function initPrecip(section) {
   root = section;
   els = {
     model: $('#pm-model'), base: $('#pm-base'), map: $('#pm-map'), consent: $('#pm-consent'),
-    slider: $('#pm-slider'), play: $('#pm-play'), now: $('#pm-now'), time: $('#pm-time'),
+    slider: $('#pm-slider'), play: $('#pm-play'), now: $('#pm-now'), prev: $('#pm-prev'), next: $('#pm-next'), time: $('#pm-time'),
     value: $('#pm-value'), legend: $('#pm-legend'), legendUnit: $('#pm-legend-unit'), status: $('#pm-status'),
   };
   seg(els.model, PRECIP_MAP.models, prefs.model, 'model');
@@ -256,6 +266,8 @@ export function initPrecip(section) {
   });
   els.slider.addEventListener('input', () => { stop(); show(Number(els.slider.value)); });
   els.play.addEventListener('click', () => { if (view) play(); });
+  els.prev.addEventListener('click', () => { if (view) { stop(); show(idx - 1); } });
+  els.next.addEventListener('click', () => { if (view) { stop(); show(idx + 1); } });
   els.now.addEventListener('click', () => { stop(); probe = null; show(nowIndex()); });
   // The °F/°C switch in the weather section sets units here too: legend, readout, scale bar.
   window.addEventListener('units-change', () => {

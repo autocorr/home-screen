@@ -47,7 +47,7 @@ export function installProtocol(maplibregl, wml, { cache, bounds, colorScales = 
 
 /**
  * @param {object} o { wml, model, label, variable, base, run, colorScales }
- *   model: Open-Meteo spatial domain, e.g. 'ncep_hrrr_conus'
+ *   model: Open-Meteo spatial domain, e.g. 'ncep_rrfs_conus'
  *   run:   optional Date of a specific (past) run to show instead of the latest.
  *          Its meta.json never changes, so it is read once and never polled.
  *   colorScales: the same overrides passed to installProtocol (for the legend)

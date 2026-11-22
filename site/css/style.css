@@ -264,6 +264,10 @@ dialog::backdrop { background: rgba(0, 0, 0, .45); }
 .btn-primary { background: var(--text); color: var(--page); border-color: var(--text); }
 .map-time { display: flex; align-items: center; gap: 8px; }
 .map-time input[type="range"] { flex: 1; min-width: 0; accent-color: var(--accent); height: 30px; }
+.map-time { gap: 6px; }
+.map-time .icon-btn { padding: 3px 0; }
+.map-time .icon-btn:disabled { opacity: .35; cursor: default; }
+#pm-prev, #pm-next { font-size: 1.25rem; line-height: 1; }
 .map-info { display: flex; justify-content: space-between; align-items: baseline; gap: 4px 12px; flex-wrap: wrap; }
 .map-time-label, .map-value { margin: 0; font-size: 0.82rem; font-variant-numeric: tabular-nums; }
 .map-value { color: var(--text-secondary); }
