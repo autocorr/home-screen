@@ -41,9 +41,8 @@ export const WORLD_CLOCKS = [
 // Links section. Placeholders: replace with real links.
 // `group` is optional; links with the same group are listed together.
 export const LINKS = [
-  { label: 'Placeholder one', url: 'https://example.com/', group: 'Group A' },
-  { label: 'Placeholder two', url: 'https://example.com/', group: 'Group A' },
-  { label: 'Placeholder three', url: 'https://example.com/', group: 'Group B' },
+  { label: 'Abstract Games', url: 'https://autocorr.github.io/abstract-games'},
+  { label: 'Chess Diagram Editor', url: 'https://autocorr.github.io/chess-diagram'},
 ];
 
 // Sections in default render order. Users can reorder/hide them in Settings.
