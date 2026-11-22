@@ -14,6 +14,10 @@ Sections can be collapsed by tapping their heading, and reordered or hidden with
   [Open-Meteo](https://open-meteo.com/) (temperature, precipitation, cloud layers, wind,
   humidity, precipitable water, pressure, UV, solar radiation, visibility, CAPE,
   freezing level, AQI, particulates, gases, AOD).
+- **Precipitation map**: forecast precipitation rate (HRRR, RRFS or NBM) over a cut-out
+  around Socorro and the VLA, from Open-Meteo's spatial files on AWS, drawn with
+  [MapLibre](https://maplibre.org/) on an OpenStreetMap basemap (streets, OSM or topo).
+  It has a time slider with playback, and you can tap the map to read the value at a point.
 - **Links**: placeholders. Edit `LINKS` in `site/js/config.js`.
 
 The theme follows the OS light/dark preference by default; Settings can override it.
@@ -32,7 +36,13 @@ site/
   js/links.js         links section
   js/settings.js      settings dialog (theme, section order/visibility)
   js/charts.js        shared uPlot helpers (theme, touch cursor, now line, night shading)
-  vendor/             uPlot 1.6.32, astronomy-engine 2.1.19 (see VERSIONS)
+  js/precip.js        precipitation map section (controls, timeline, storage prompt)
+  js/map/view.js      generic MapLibre view: basemap, markers, time-varying data layers
+  js/map/basemaps.js  OSM-based basemaps
+  js/map/openmeteo.js Open-Meteo spatial forecast (.om) data layer
+  js/map/storage.js   map data block cache (disk or memory) and its permission
+  js/map/colormaps.js Turbo colour map as a weather-map-layer colour scale
+  vendor/             uPlot, astronomy-engine, maplibre-gl, @openmeteo/weather-map-layer (see VERSIONS)
 scripts/
   check_astro.py      cross-checks site positions against astropy
   astro_dump.mjs      helper used by check_astro.py
@@ -82,6 +92,63 @@ Fallbacks:
 The status line shows the newest model run, e.g. "newest run NBM 03Z". Leaving a tab
 open all day costs about 24 × 3.6 + 2 × 1 ≈ 90 calls. The free tier allows 10,000 per day.
 
+## Precipitation map
+
+The map loads its libraries (MapLibre and Open-Meteo's
+[weather-map-layer](https://github.com/open-meteo/weather-map-layer), about 4 MB with
+WASM) only when the section is on screen and expanded. It needs WebGL2.
+
+**Colours and units.** Precipitation uses Google's Turbo colour map
+(`PRECIP_MAP.colormap` in `config.js`; set `'default'` for Open-Meteo's palette). The
+first step (below 0.01 mm/h) is transparent, so dry ground stays clear. The weather
+section's °F/°C switch also changes the map's legend, point readout and scale bar.
+
+**Past runs.** Add `?pm_run=2026-11-21T12Z&pm_time=2026-11-21T16Z` to the URL to show
+an older run, which stays on S3 for a while, at a given valid time. The run's
+`meta.json` is read once and not polled.
+
+**Data.** Each model publishes one `.om` file per valid time on AWS
+(`openmeteo.s3.amazonaws.com/data_spatial/<model>/<run>/<time>.om`). Each file is about 100 MB and holds
+every variable for the whole model domain. The reader fetches only the byte ranges
+for `precipitation` inside `PRECIP_MAP.bounds` (`site/js/config.js`), in 64 kB blocks.
+That is about 200–250 kB per frame for HRRR. Tiles are rendered in the browser.
+Data outside the cut-out is never downloaded or drawn.
+
+**Fetch budget.**
+- `latest.json` (~8 kB) is read when the map opens, and then at most every 10 min while the
+  map is visible. It is a conditional request, so an unchanged file costs a 304.
+- File URLs are built for a specific run and valid time, so cached data never goes stale.
+  The library's `latest.json?...` "capture" URLs are not used: they would re-read
+  `latest.json` for every frame.
+- A frame is downloaded only when it is shown. While playing, the timeline waits for
+  each frame to draw before moving on.
+- The first time a file is opened there is one HEAD request.
+
+**Storage.** The first time the map loads, it asks whether to keep downloaded blocks on disk:
+- **Allow disk cache:** blocks go into the browser's Cache Storage (`map-blocks-v1`),
+  capped at 300 MB. Blocks older than 48 h are removed. A reload re-downloads nothing for
+  frames already seen. The site also asks the browser to make its storage persistent
+  (`navigator.storage.persist`), so the cache is not evicted under storage pressure.
+  Firefox may show a permission prompt for this.
+- **Memory only:** a 16 MB in-memory cache, so every reload re-downloads.
+
+Either way, blocks are held in RAM only briefly, and at most 4 decoded frames are kept.
+You can change the choice, see usage, or clear the cache in ⚙ Settings → *Map data cache*.
+A change takes effect after a reload. Basemap tiles use the browser's normal HTTP cache.
+
+GitHub Pages can't send the COOP/COEP headers that would let the renderer share memory
+with its workers. Without them, each worker gets a copy of the cut-out. The cut-out is
+small, so this costs little.
+
+**Adding a data source (e.g. radar reflectivity).** `site/js/map/view.js` knows nothing
+about where data comes from. A data layer is a plain object with `id`, `frames()`
+(sorted `{time, key}`), `sourceSpec(frame, {dark})` returning a MapLibre raster source
+(an XYZ `tiles` template works as well as `om://`), and optionally `frameFor(t)`,
+`maxGapMs`, `legend({dark})`, `valueAt(frame, lngLat)` and `attribution`. Add it with
+`view.addLayer(layer)`. All layers share one timeline (`view.times()` is the union of
+their frame times), so observed radar for past times and the forecast for future times
+can sit on the same slider. `site/js/map/openmeteo.js` is the reference implementation.
+
 ## Testing in browsers
 
 ```sh
@@ -94,12 +161,15 @@ uv run tests/firefox_selenium_check.py            # your installed Firefox via g
 
 The checks cover: no horizontal scroll, no element overflowing its box, clocks
 ticking, all charts drawn, tap/hover cursor sync, section collapse and order
-persisting, theme, the weather cache being reused on reload, and no JS errors.
+persisting, theme, the weather cache being reused on reload, the precipitation map
+(storage prompt, model run loaded, value at Socorro, timeline), and no JS errors.
 
 Limits:
 - Firefox for Android can't be automated here. The Playwright Firefox run at 393 px
   with touch input is the closest stand-in.
 - The installed-Firefox run can't go narrower than about 490 px.
+- Headless Firefox has no WebGL2, so the map rendering checks only run in Chromium.
+  In Firefox the tests only check that the map section reports the missing WebGL2.
 - Headless Firefox ESR ignores dark-mode emulation, so that run only checks that the
   page matches whatever scheme the browser reports.
 

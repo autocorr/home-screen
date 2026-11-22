@@ -16,6 +16,7 @@
       if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch {}
   </script>
   <link rel="stylesheet" href="vendor/uPlot.min.css">
+  <link rel="stylesheet" href="vendor/maplibre-gl/maplibre-gl.css">
   <link rel="stylesheet" href="css/style.css">
   <script src="vendor/uPlot.iife.min.js" defer></script>
   <script src="vendor/astronomy.browser.min.js" defer></script>
@@ -106,6 +107,33 @@
     </div>
   </section>
 
+  <section id="precip" data-section="precip" class="panel" aria-labelledby="pm-h">
+    <header class="section-head">
+      <h2 id="pm-h"><button class="section-toggle" aria-expanded="true" aria-controls="pm-body">Precipitation map</button></h2>
+      <div class="controls head-controls">
+        <div class="seg" id="pm-model" role="group" aria-label="Forecast model"></div>
+        <div class="seg" id="pm-base" role="group" aria-label="Basemap"></div>
+      </div>
+    </header>
+    <div class="section-body" id="pm-body">
+      <div class="map-wrap">
+        <div id="pm-map" class="map" role="region" aria-label="Precipitation map"></div>
+        <div id="pm-consent" class="map-consent" hidden></div>
+      </div>
+      <div class="map-time">
+        <button type="button" id="pm-play" class="icon-btn" aria-label="Play">▶</button>
+        <input type="range" id="pm-slider" min="0" max="0" value="0" aria-label="Forecast time" disabled>
+        <button type="button" id="pm-now" class="btn" title="Jump to now and reset the readout to Socorro">Now</button>
+      </div>
+      <div class="map-info">
+        <p id="pm-time" class="map-time-label"></p>
+        <p id="pm-value" class="map-value" title="Tap the map to read another point"></p>
+      </div>
+      <div class="legend-row"><div id="pm-legend" class="legend"></div><span id="pm-legend-unit" class="unit"></span></div>
+      <p id="pm-status" class="note"></p>
+    </div>
+  </section>
+
   <section id="links" data-section="links" class="panel" aria-labelledby="links-h">
     <header class="section-head">
       <h2 id="links-h"><button class="section-toggle" aria-expanded="true" aria-controls="links-list">Links</button></h2>
@@ -115,7 +143,7 @@
 
   <footer class="site-footer">
     <button type="button" id="open-settings" class="btn">⚙ Settings</button>
-    <p class="note">Weather &amp; air quality: <a href="https://open-meteo.com/">Open-Meteo</a> (CC BY 4.0). Positions: <a href="https://github.com/cosinekitty/astronomy">Astronomy Engine</a>. Charts: <a href="https://github.com/leeoniya/uPlot">uPlot</a>.</p>
+    <p class="note">Weather &amp; air quality: <a href="https://open-meteo.com/">Open-Meteo</a> (CC BY 4.0). Positions: <a href="https://github.com/cosinekitty/astronomy">Astronomy Engine</a>. Charts: <a href="https://github.com/leeoniya/uPlot">uPlot</a>. Maps: <a href="https://maplibre.org/">MapLibre</a>, <a href="https://github.com/open-meteo/weather-map-layer">Open-Meteo weather-map-layer</a>, map data © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors.</p>
   </footer>
 </main>
 
@@ -139,6 +167,19 @@
     <div class="set-actions">
       <button type="button" id="set-expand-all" class="btn">Expand all</button>
       <button type="button" id="set-clear-cache" class="btn">Clear weather cache</button>
+    </div>
+    <div>
+      <h3>Map data cache</h3>
+      <p class="note">Where downloaded forecast map data is kept. Disk uses this browser's Cache Storage; memory-only re-downloads on every page load. Takes effect after a reload.</p>
+      <div class="set-row">
+        <div class="seg" id="set-map-cache" role="group" aria-label="Map data cache">
+          <button type="button" data-pref="disk">Disk</button><button type="button" data-pref="memory">Memory only</button>
+        </div>
+        <button type="button" id="set-map-clear" class="btn">Clear</button>
+      </div>
+      <p id="set-map-usage" class="note"></p>
+    </div>
+    <div class="set-actions">
       <button type="button" id="set-reset" class="btn">Reset to defaults</button>
     </div>
   </form>

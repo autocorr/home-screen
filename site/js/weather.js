@@ -166,6 +166,7 @@ const FIXED = {
   aod: { u: '', f: (x) => x, d: 2 },
 };
 let unitSystem = store.get(UNITS_KEY) || 'imperial';
+export const getUnitSystem = () => unitSystem;
 const unit = (kind) => UNITS[unitSystem][kind] || FIXED[kind];
 const conv = (kind, v) => (v == null ? null : unit(kind).f(v));
 const fmt = (kind, v, withUnit = true) => {
@@ -287,6 +288,7 @@ export function initWeather(root) {
     unitSystem = b.dataset.units;
     store.set(UNITS_KEY, unitSystem);
     render(root);
+    window.dispatchEvent(new CustomEvent('units-change', { detail: unitSystem }));
   });
   root.querySelector('#wx-range').addEventListener('click', (e) => {
     const b = e.target.closest('button[data-range]');

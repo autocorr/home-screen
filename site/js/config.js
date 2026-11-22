@@ -31,6 +31,29 @@ export const SKY_WINDOW = { before: 12, after: 12, stepMin: 5 };
 // This age (minutes) is only the fallback when the model metadata can't be read.
 export const WX_MAX_AGE_MIN = 30;
 
+// Precipitation map (site/js/precip.js). `bounds` [west, south, east, north] is
+// the cut-out: data outside it is never downloaded or drawn, and the map can't
+// be panned far beyond it. `models` are Open-Meteo spatial domains
+// (https://openmeteo.s3.amazonaws.com/index.html#data_spatial/).
+export const PRECIP_MAP = {
+  center: [SOCORRO.lon, SOCORRO.lat],
+  zoom: 6.6,
+  minZoom: 5.5,
+  maxZoom: 12,
+  bounds: [-109.6, 31.6, -104.2, 36.6],
+  // 'turbo' (Google Turbo, see js/map/colormaps.js) or 'default' (Open-Meteo's palette).
+  colormap: 'turbo',
+  models: [
+    { id: 'ncep_hrrr_conus', label: 'HRRR', title: 'NOAA HRRR, 3 km, hourly runs, 48 h' },
+    { id: 'ncep_rrfs_conus', label: 'RRFS', title: 'NOAA RRFS, 3 km, 84 h' },
+    { id: 'ncep_nbm_conus', label: 'NBM', title: 'NOAA National Blend of Models, 2.5 km, 11 days' },
+  ],
+  markers: [
+    { label: '', lngLat: [SOCORRO.lon, SOCORRO.lat] },  // basemaps already label Socorro
+    { label: 'VLA', lngLat: [VLA.lon, VLA.lat] },
+  ],
+};
+
 // World clocks section.
 export const WORLD_CLOCKS = [
   { label: 'Japan', tz: 'Asia/Tokyo' },
@@ -52,5 +75,6 @@ export const SECTIONS = [
   { id: 'world', label: 'World time' },
   { id: 'sky', label: 'Sky at the VLA' },
   { id: 'weather', label: 'Weather' },
+  { id: 'precip', label: 'Precipitation map' },
   { id: 'links', label: 'Links' },
 ];

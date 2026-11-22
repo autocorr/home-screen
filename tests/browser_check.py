@@ -53,7 +53,7 @@ with sync_playwright() as p:
             sw = pg.evaluate("document.documentElement.scrollWidth")
             check("no horizontal page scroll", sw <= w, f"scrollWidth {sw} / viewport {w}")
             clipped = pg.evaluate("""[...document.querySelectorAll(
-                '.clock-time, .clock-sub, .day, .tile, .table-wrap, .chart-card')]
+                '.clock-time, .clock-sub, .day, .tile, .table-wrap, .chart-card, .map-wrap, .map-time, .map-info')]
                 .filter(e => e.offsetParent && e.scrollWidth > e.clientWidth + 1)
                 .map(e => e.className + ':' + e.textContent.trim().slice(0, 20))""")
             check("nothing overflows its box", not clipped, "; ".join(clipped)[:200])
@@ -90,6 +90,33 @@ with sync_playwright() as p:
             pg.touchscreen.tap(x, y) if opts.get("has_touch") else pg.mouse.move(x, y)
             pg.wait_for_timeout(250)
             check("sky cursor -> polar markers", pg.locator("#sky-polar circle.cursor-pos").count() > 0)
+
+            # Precipitation map: storage permission asked once, then model data drawn.
+            # MapLibre needs WebGL2, which headless Firefox lacks; there only check
+            # that the failure is reported in the section rather than breaking the page.
+            webgl2 = pg.evaluate("!!document.createElement('canvas').getContext('webgl2')")
+            pg.locator("#precip").scroll_into_view_if_needed()
+            if not webgl2:
+                pg.wait_for_timeout(500)
+                print("  SKIP  precip map rendering (no WebGL2 in this browser)")
+                check("map reports missing WebGL2", "WebGL2" in pg.inner_text("#pm-status"), pg.inner_text("#pm-status")[:80])
+            else:
+                pg.wait_for_selector("#pm-consent:not([hidden]) button[data-pref=memory]", timeout=10000)
+                check("map asks before using disk storage", pg.is_visible("#pm-consent"))
+                pg.click("#pm-consent button[data-pref=memory]")
+                try:
+                    pg.wait_for_function("/run \\d\\dZ/.test(document.querySelector('#pm-status').textContent)", timeout=30000)
+                    pg.wait_for_function("/Socorro/.test(document.querySelector('#pm-value').textContent)", timeout=30000)
+                except Exception:
+                    pass
+                check("precip map loads a model run", "run" in pg.inner_text("#pm-status"), pg.inner_text("#pm-status"))
+                check("precip map reads value at Socorro", "Socorro" in pg.inner_text("#pm-value"), pg.inner_text("#pm-value"))
+                check("precip map has a timeline", int(pg.get_attribute("#pm-slider", "max")) >= 10)
+                check("map uses memory cache when declined", not pg.evaluate("caches.has('map-blocks-v1')"))
+                t_before = pg.inner_text("#pm-time")
+                pg.focus("#pm-slider"); pg.keyboard.press("ArrowRight"); pg.wait_for_timeout(300)
+                check("map timeline steps", pg.inner_text("#pm-time") != t_before,
+                      f"{t_before} -> {pg.inner_text('#pm-time')}")
 
             if shots:
                 pg.evaluate("window.scrollTo(0,0)")
@@ -146,7 +173,7 @@ with sync_playwright() as p:
 
             # Every section collapses (catches ID rules overriding the collapse rule).
             bad = []
-            for sec in ["clocks", "world", "sky", "weather", "links"]:
+            for sec in ["clocks", "world", "sky", "weather", "precip", "links"]:
                 tog = pg.locator(f'[data-section="{sec}"] .section-toggle')
                 tog.scroll_into_view_if_needed(); tog.click()
                 if pg.locator(f'[data-section="{sec}"] .section-body').is_visible(): bad.append(sec)
@@ -188,7 +215,7 @@ with sync_playwright() as p:
             pg.reload(); pg.wait_for_timeout(1500)
             order = pg.evaluate("[...document.querySelectorAll('main > section')]"
                                 ".sort((a,b)=>a.style.order-b.style.order).map(s=>s.id)")
-            check("section order persists", order.index("links") < order.index("weather"), ",".join(order))
+            check("section order persists", order.index("links") < order.index("precip"), ",".join(order))
             check("theme override persists", pg.evaluate("document.documentElement.dataset.theme") in ("light", "dark"))
             check("weather served from cache on reload", not wx_reqs, f"{len(wx_reqs)} data requests")
             check("status shows model run", "run" in pg.inner_text("#wx-status"), pg.inner_text("#wx-status"))
