@@ -66,7 +66,8 @@ function touchPlugin() {
           if (!t) return;
           lastTouchAt = Date.now();
           const r = over.getBoundingClientRect();
-          u.setCursor({ left: t.clientX - r.left, top: t.clientY - r.top });
+          // fire hooks, and publish to synced charts (uPlot skips sync by default).
+          u.setCursor({ left: t.clientX - r.left, top: t.clientY - r.top }, true, true);
         };
         over.addEventListener('touchstart', move, { passive: true });
         over.addEventListener('touchmove', move, { passive: true });

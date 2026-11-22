@@ -37,7 +37,7 @@ export function initSky(el) {
   const polar = root.querySelector('#sky-polar');
   polar.addEventListener('pointermove', onPolarHover);
   polar.addEventListener('pointerleave', () => {
-    charts[0]?.setCursor({ left: -10, top: -10 });
+    charts[0]?.setCursor({ left: -10, top: -10 }, true, true); // true, true: also move the az chart
     setFocus(null);
   });
   // Polar readout behaves like a uPlot legend: hover to highlight, click to toggle.
@@ -303,6 +303,6 @@ function onPolarHover(e) {
   const u = charts[0];
   if (best == null || !u) { setFocus(null); return; }
   // Drive the time-chart cursor; its setCursor hook redraws the polar markers.
-  u.setCursor({ left: u.valToPos(grid.t[best], 'x'), top: u.over.clientHeight / 2 });
+  u.setCursor({ left: u.valToPos(grid.t[best], 'x'), top: u.over.clientHeight / 2 }, true, true); // sync az chart too
   setFocus(bestK); // highlight the nearest track, like uPlot's proximity focus
 }
