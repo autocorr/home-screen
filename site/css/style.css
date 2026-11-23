@@ -93,7 +93,6 @@ section.collapsed .section-body, section.collapsed .head-controls { display: non
   font: inherit; font-size: 0.8rem; color: var(--text-secondary); background: transparent;
   border: 0; padding: 3px 9px; min-height: 30px; cursor: pointer; border-radius: 4px;
 }
-.seg[hidden] { display: none; }
 .seg button { border-radius: 0; }
 .seg button + button { border-left: 1px solid var(--rule); }
 .seg button[aria-pressed="true"] { background: var(--text); color: var(--page); }
@@ -101,7 +100,7 @@ section.collapsed .section-body, section.collapsed .head-controls { display: non
 .icon-btn { font-size: 1rem; min-width: 32px; }
 .btn { padding: 4px 12px; }
 .move button { min-width: 34px; min-height: 34px; }
-.move button:disabled { opacity: .35; cursor: default; }
+.move button:disabled, .seg button:disabled { opacity: .35; cursor: default; }
 
 /* ---- clocks: columns divided by rules ---- */
 .clocks { display: grid; grid-template-columns: repeat(3, 1fr); }
@@ -275,6 +274,8 @@ dialog::backdrop { background: rgba(0, 0, 0, .45); }
 .map-info { display: flex; justify-content: space-between; align-items: baseline; gap: 4px 12px; flex-wrap: wrap; }
 .map-time-label, .map-value { margin: 0; font-size: 0.82rem; font-variant-numeric: tabular-nums; }
 .map-value { color: var(--text-secondary); }
+/* Status stays one line in both views so the section height doesn't change; errors may wrap. */
+.map-status:not(.error) { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .legend-row { display: flex; align-items: flex-start; gap: 8px; }
 .legend { flex: 1; min-width: 0; max-width: 560px; }
 .legend-bar { height: 10px; border: 1px solid var(--rule); }

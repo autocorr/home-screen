@@ -76,36 +76,52 @@ const $ = (sel) => root.querySelector(sel);
 
 function seg(el, items, current, attr) {
   el.innerHTML = items.map((i) =>
-    `<button type="button" data-${attr}="${i.id}" title="${i.title ?? ''}" aria-pressed="${i.id === current}">${i.label}</button>`).join('');
+    `<button type="button" data-${attr}="${i.id}" title="${i.title ?? ''}" aria-pressed="${i.id === current}"` +
+    `${i.disabled ? ' disabled' : ''}>${i.label}</button>`).join('');
+}
+
+/** Model switch. Radar always uses RRFS (NBM has no reflectivity), but the switch stays in
+ *  place, locked, so the header keeps the same rows and the map doesn't move between views. */
+function renderModels() {
+  const radar = isRadar();
+  const rrfs = PRECIP_MAP.models.find((m) => PRECIP_MAP.radar.forecasts.some((f) => f.id === m.id))?.id;
+  const items = PRECIP_MAP.models.map((m) => !radar ? m
+    : { ...m, disabled: m.id !== rrfs, title: m.id === rrfs ? 'Radar forecasts use RRFS' : `${m.label} has no radar reflectivity` });
+  seg(els.model, items, radar ? rrfs : prefs.model, 'model');
 }
 
 function status(msg, isError = false) {
   els.status.textContent = msg;
   els.status.classList.toggle('error', isError);
+  els.status.title = '';   // describe() sets the tooltip for the data line
 }
 
 /** The layer drawing time t (the first one with a frame there). */
 const layerAt = (t) => layers.find((l) => view?.frameOf(l.id, t));
 
 function describe() {
-  const cache = getStoragePref() === 'disk' ? 'disk cache' : 'memory cache only';
-  let data;
+  const cache = getStoragePref() === 'disk' ? 'disk cache' : 'memory cache';
+  let data, detail = '';
   if (isRadar()) {
+    // Kept short enough for one line on a phone, like the precip line, so the section
+    // is the same height in both views. The per-feed runs go in the tooltip.
     const [obs, ...fc] = layers;
     const loaded = fc.filter((l) => l.run);
     data = [
-      obs.newest ? `Radar to ${hmFmt.format(obs.newest)} MT` : 'Observed radar unavailable',
-      loaded.length ? `RRFS ${loaded[0].fixed ? 'archived ' : ''}run ${loaded.map((l) => `${runFmt(l.run)} (${l.short})`).join(', ')}`
-        : 'RRFS forecast unavailable',
+      obs.newest ? `Radar to ${hmFmt.format(obs.newest)} MT` : 'No observed radar',
+      loaded.length ? `RRFS ${loaded[0].fixed ? 'archived' : 'runs'} ${loaded.map((l) => runFmt(l.run)).join(', ')}`
+        : 'No RRFS forecast',
     ].join(' · ');
+    detail = loaded.map((l) => `${l.short}: run ${runFmt(l.run)} (${dtFmt.format(l.run)} MT)`).join('\n') + '\n';
   } else {
     const [layer] = layers;
     const model = PRECIP_MAP.models.find((m) => m.id === prefs.model);
     data = layer?.run ? `${model.label} ${layer.fixed ? 'archived ' : ''}run ${runFmt(layer.run)} (${dtFmt.format(layer.run)} MT)` : model.label;
   }
   status(`${data} · ${cache}`);
-  els.status.title = crossOriginIsolated ? 'Cross-origin isolated: data shared with render workers'
-    : 'Not cross-origin isolated: each render worker gets a copy of the (small) cut-out';
+  // One line (ellipsis if it still doesn't fit, see .map-status): the full text is in the tooltip.
+  els.status.title = `${data} · ${cache}\n` + detail + (crossOriginIsolated ? 'Cross-origin isolated: data shared with render workers'
+    : 'Not cross-origin isolated: each render worker gets a copy of the (small) cut-out');
 }
 
 function syncTimeline() {
@@ -247,13 +263,13 @@ function setQuantity(id) {
   const follow = times.length > 0 && idx === nowIndex();
   prefs.quantity = id; savePrefs();
   seg(els.qty, PRECIP_MAP.quantities, prefs.quantity, 'qty');
-  els.model.hidden = isRadar();   // the radar view always uses RRFS (NBM has no reflectivity)
+  renderModels();
   return rebuild({ follow });
 }
 
 function setModel(id) {
   prefs.model = id; savePrefs();
-  seg(els.model, PRECIP_MAP.models, prefs.model, 'model');
+  renderModels();
   return rebuild();
 }
 
@@ -350,8 +366,7 @@ export function initPrecip(section) {
     value: $('#pm-value'), legend: $('#pm-legend'), legendUnit: $('#pm-legend-unit'), status: $('#pm-status'),
   };
   seg(els.qty, PRECIP_MAP.quantities, prefs.quantity, 'qty');
-  seg(els.model, PRECIP_MAP.models, prefs.model, 'model');
-  els.model.hidden = isRadar();
+  renderModels();
   seg(els.base, Object.entries(BASEMAPS).map(([id, b]) => ({ id, label: b.label })), prefs.basemap, 'base');
 
   els.qty.addEventListener('click', (e) => {
@@ -360,7 +375,7 @@ export function initPrecip(section) {
   });
   els.model.addEventListener('click', (e) => {
     const b = e.target.closest('button[data-model]');
-    if (b && view && b.dataset.model !== prefs.model) setModel(b.dataset.model);
+    if (b && view && !isRadar() && b.dataset.model !== prefs.model) setModel(b.dataset.model);
   });
   els.base.addEventListener('click', (e) => {
     const b = e.target.closest('button[data-base]');

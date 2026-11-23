@@ -121,17 +121,25 @@ with sync_playwright() as p:
                 # Radar: observed IEM mosaic up to now, then the RRFS reflectivity forecast.
                 # Switching while at "now" lands on the radar's "now" (the latest scan).
                 pg.click("#pm-now")
+                sec_h = pg.evaluate("document.querySelector('#precip').getBoundingClientRect().height")
+                map_top = pg.evaluate("document.querySelector('#pm-map').getBoundingClientRect().top - document.querySelector('#precip').getBoundingClientRect().top")
                 pg.click("#pm-qty button[data-qty=refl]")
                 try:
-                    pg.wait_for_function("/Radar to .* run \\d\\dZ/.test(document.querySelector('#pm-status').textContent)", timeout=30000)
+                    pg.wait_for_function("/Radar to .* RRFS (runs|archived) \\d\\dZ/.test(document.querySelector('#pm-status').textContent)", timeout=30000)
                     pg.wait_for_function("/Socorro: .*(dBZ|no echo)/.test(document.querySelector('#pm-value').textContent)", timeout=30000)
                 except Exception:
                     pass
                 st = pg.inner_text("#pm-status")
-                check("radar loads observed scans and RRFS runs", "Radar to" in st and "run" in st, st)
+                check("radar loads observed scans and RRFS runs", "Radar to" in st and "RRFS" in st, st)
                 check("radar starts at the latest observed scan", "observed · latest" in pg.inner_text("#pm-time"), pg.inner_text("#pm-time"))
                 check("radar reads dBZ at Socorro", "Socorro" in pg.inner_text("#pm-value"), pg.inner_text("#pm-value"))
-                check("radar hides the model switch", pg.is_hidden("#pm-model"))
+                check("radar locks the model switch to RRFS",
+                      pg.get_attribute("#pm-model button[data-model=ncep_rrfs_conus]", "aria-pressed") == "true"
+                      and pg.is_disabled("#pm-model button[data-model=ncep_nbm_conus]"))
+                radar_top = pg.evaluate("document.querySelector('#pm-map').getBoundingClientRect().top - document.querySelector('#precip').getBoundingClientRect().top")
+                check("map stays put when switching to radar", abs(radar_top - map_top) < 0.5, f"{map_top} -> {radar_top}")
+                radar_h = pg.evaluate("document.querySelector('#precip').getBoundingClientRect().height")
+                check("section height same in radar view", abs(radar_h - sec_h) < 0.5, f"{sec_h} -> {radar_h}")
                 check("radar legend in dBZ", pg.inner_text("#pm-legend-unit") == "dBZ")
                 pg.click("#pm-next")
                 pg.wait_for_timeout(500)
@@ -141,7 +149,7 @@ with sync_playwright() as p:
                     pg.wait_for_function("/run \\d\\dZ \\(/.test(document.querySelector('#pm-status').textContent)", timeout=30000)
                 except Exception:
                     pass
-                check("switch back to precipitation", pg.is_visible("#pm-model") and pg.inner_text("#pm-legend-unit") != "dBZ",
+                check("switch back to precipitation", pg.is_enabled("#pm-model button[data-model=ncep_nbm_conus]") and pg.inner_text("#pm-legend-unit") != "dBZ",
                       pg.inner_text("#pm-status"))
 
             if shots:
