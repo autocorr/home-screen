@@ -55,16 +55,20 @@ const ignoreLeaveAfterTouch = (u, targ, handler) => (e) => {
   return handler(e);
 };
 
-/** Touch: tap or drag horizontally across a chart to move the cursor. */
-function touchPlugin() {
+/**
+ * Touch: tap or drag horizontally across a chart to move the cursor. With
+ * `moveCursor` false the chart handles touches itself; touches are still noted
+ * so the synthetic mouseleave doesn't hide its cursor.
+ */
+function touchPlugin(moveCursor = true) {
   return {
     hooks: {
       init(u) {
         const over = u.over;
         const move = (e) => {
           const t = e.touches[0];
-          if (!t) return;
           lastTouchAt = Date.now();
+          if (!t || !moveCursor) return;
           const r = over.getBoundingClientRect();
           // fire hooks, and publish to synced charts (uPlot skips sync by default).
           u.setCursor({ left: t.clientX - r.left, top: t.clientY - r.top }, true, true);
@@ -135,6 +139,7 @@ function decorPlugin({ now, shade, hlines }) {
 /**
  * Create a responsive uPlot chart in `el`.
  * opts: { series:[{label,color,fmt,points,paths,dash,width}], data, yRange, yLabel, legend (false hides),
+ *         touch (false: no touch-drag cursor),
  *         yValues, ySplits, syncKey, now, shade, hlines, height, xRange, plugins, hooks }
  */
 export function makeChart(el, opts) {
@@ -175,7 +180,7 @@ export function makeChart(el, opts) {
     },
     axes: axes(opts.yLabel, opts.yValues, opts.ySplits, opts.h24),
     series,
-    plugins: [touchPlugin(), decorPlugin(opts), ...(opts.plugins || [])],
+    plugins: [touchPlugin(opts.touch !== false), decorPlugin(opts), ...(opts.plugins || [])],
     hooks: opts.hooks,
   }, opts.data, el);
   new ResizeObserver(() => {

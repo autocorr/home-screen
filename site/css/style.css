@@ -10,6 +10,7 @@
   --grid: #e3dccd;          /* chart gridlines */
   --axis: #c4baa6;
   --shade: rgba(90, 70, 30, 0.07);   /* night shading on charts */
+  --sky-shade: rgba(30, 45, 100, 0.15);  /* satellite chart at night; twilight is a fraction */
   --now: #c0392b;
   --accent: #1f5fae;
 
@@ -28,7 +29,7 @@
   :root:not([data-theme="light"]) {
     color-scheme: dark;
     --page: #000; --text: #e9e7e2; --text-secondary: #b9b6ad; --text-muted: #85827a;
-    --rule: #2a2a2a; --grid: #1c1c1c; --axis: #333; --shade: rgba(120, 140, 255, 0.09);
+    --rule: #2a2a2a; --grid: #1c1c1c; --axis: #333; --shade: rgba(120, 140, 255, 0.09); --sky-shade: rgba(120, 140, 255, 0.2);
     --now: #e66767; --accent: #5b9bea;
     --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500;
     --series-5: #d55181; --series-6: #0ca30c; --series-7: #9085e9; --series-8: #e66767;
@@ -39,7 +40,7 @@
 :root[data-theme="dark"] {
   color-scheme: dark;
   --page: #000; --text: #e9e7e2; --text-secondary: #b9b6ad; --text-muted: #85827a;
-  --rule: #2a2a2a; --grid: #1c1c1c; --axis: #333; --shade: rgba(120, 140, 255, 0.09);
+  --rule: #2a2a2a; --grid: #1c1c1c; --axis: #333; --shade: rgba(120, 140, 255, 0.09); --sky-shade: rgba(120, 140, 255, 0.2);
   --now: #e66767; --accent: #5b9bea;
   --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500;
   --series-5: #d55181; --series-6: #0ca30c; --series-7: #9085e9; --series-8: #e66767;
@@ -222,6 +223,11 @@ dialog::backdrop { background: rgba(0, 0, 0, .45); }
 #sat-polar { width: 100%; max-width: 440px; aspect-ratio: 1; display: block; margin: 0 auto; touch-action: pan-y; }
 .sat-el-card figcaption.panel-sub { padding-bottom: 2px; }
 .sat-el-card .seg { font-weight: 400; }
+.sat-el-wrap { position: relative; }
+/* Floats over the plot's top-right corner, so showing it doesn't move the chart. */
+#sat-now { position: absolute; top: 8px; right: 8px; z-index: 2; background: var(--page);
+  border: 1px solid var(--rule); min-height: 26px; padding: 2px 9px; }
+#sat-now[hidden] { display: none; }
 .sub-h { font-size: 0.8rem; font-weight: 600; }
 #sat-passes { border-collapse: collapse; width: 100%; font-size: 0.82rem; font-variant-numeric: tabular-nums; }
 #sat-passes th, #sat-passes td { padding: 3px 6px; text-align: right; white-space: nowrap; border-bottom: 1px solid var(--rule); }
