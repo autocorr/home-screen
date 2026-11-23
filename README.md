@@ -127,12 +127,12 @@ satellites. BlueWalker 3 is not in the group, so it is added by catalog number
 the pass list; dragging it brighter trims the clutter. At 2.5 there are typically
 30–40 satellites and 60–70 passes in 48 h; at 0, a handful.
 
-- **Chart:** each shown pass, coloured by its peak brightness on a one-hue ramp (strong =
-  bright, pale = near the cutoff), thick where visible, with the satellite's name at the
+- **Chart:** each shown pass, coloured by its peak brightness on a one-hue ramp shared with
+  the sky view (pale gold = bright, darker gold = near the cutoff), thick where visible, with the satellite's name at the
   peak where labels don't collide. The window is 2 h; drag it (mouse or one finger) or
   scroll sideways (trackpad, or Shift + wheel) to pan from 1 h ago to 48 h ahead, and
-  **Now** returns to the current time. The background is clear by day and darkens through
-  civil, nautical and astronomical twilight to night. There is no per-satellite legend: the names and the
+  **Now** returns to the current time. The background uses the sky view's own colours in both
+  themes: blue by day, navy-black at night, blending through dawn and dusk. There is no per-satellite legend: the names and the
   pass list identify them.
 - **Sky view:** passes in progress at the chart's time, and faintly, passes starting within
   30 min with their rise time. The readout below lists what's up, brightest first.
