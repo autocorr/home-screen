@@ -1,7 +1,8 @@
 // Satellites section: a sky view from Socorro (stars to mag 4, constellation
 // figures, Sun, Moon, planets and satellite passes) above an elevation-vs-time
-// chart, a list of the brightest passes and a week of ISS passes. Hovering or
-// dragging along the chart moves the sky view to that time.
+// chart, a list of the brightest passes and a week of ISS passes. The chart
+// shows a 2 h window that pans by dragging or scrolling sideways; hovering or
+// tapping it moves the sky view to that time.
 //
 // Satellites: CelesTrak's "visual" group (site/js/tle.js), propagated with SGP4
 // in a worker (site/js/sats-worker.js). A pass is shown when it is visible
@@ -15,8 +16,9 @@ import { cachedTLE, tleNeedsRefresh, refreshTLE, tleEpoch } from './tle.js';
 
 const D2R = Math.PI / 180, R2D = 180 / Math.PI;
 const RE = 6378.137;  // km
-const KEYS = { tz: 'sats:tz', range: 'sats:range', sort: 'sats:sort', week: 'sats:week', mag: 'sats:mag' };
-const RANGES = { '3h': 3, '12h': 12, '24h': 24, '48h': 48 };
+const KEYS = { tz: 'sats:tz', sort: 'sats:sort', week: 'sats:week', mag: 'sats:mag' };
+const SPAN = 2 * 3600;      // chart window (s)
+const LEAD = 12 * 60;       // when following now, the window starts this long before it
 const PASS_ROWS = 10;
 const READOUT_CELLS = 6;
 const UPCOMING_S = 30 * 60;  // the sky view also draws passes starting this soon
@@ -29,14 +31,14 @@ const AE = () => globalThis.Astronomy;
 
 let root, aeObs, gd, obsEcf;
 let tz = pref(KEYS.tz, TZ);
-let range = RANGES[pref(KEYS.range, '12h')] ? pref(KEYS.range, '12h') : '12h';
 let sortMode = pref(KEYS.sort, 'mag');
 let weekMode = pref(KEYS.week, 'visible');
 let magCut = (() => {
   const v = Number(pref(KEYS.mag, SATS.magCut.default));
   return Number.isFinite(v) ? Math.max(SATS.magCut.min, Math.min(SATS.magCut.max, v)) : SATS.magCut.default;
 })();
-let zoom = null;         // { t0, t1, p } while zoomed to one pass
+let viewT0 = null;       // chart window start (unix s) once panned; null follows now
+let selP = null;         // pass picked in the list
 let sats = new Map();    // id -> { id, name, ctName, stdMag, stdSrc, rec, epoch }
 let grid = null;         // { t, sunEl } timeline of the chart; pass indices refer to it
 let passes = [];         // passes over the window (from the worker); visible ones carry tracks
@@ -144,7 +146,7 @@ export function initSats(el) {
     if (b) fn(b.dataset);
   });
   seg('#sat-tz', (d) => { tz = d.tz; setPref(KEYS.tz, tz); buildChart(); renderTables(); drawPolar(); });
-  seg('#sat-range', (d) => { range = d.range; setPref(KEYS.range, range); zoom = null; applyView(); renderTables(); });
+  root.querySelector('#sat-now').addEventListener('click', () => { viewT0 = null; selP = null; applyView(); renderTables(); });
   seg('#sat-sort', (d) => { sortMode = d.sort; setPref(KEYS.sort, sortMode); renderTables(); });
   seg('#sat-week-mode', (d) => { weekMode = d.mode; setPref(KEYS.week, weekMode); renderTables(); });
 
@@ -152,7 +154,7 @@ export function initSats(el) {
   Object.assign(slider, { min: SATS.magCut.min, max: SATS.magCut.max, step: SATS.magCut.step, value: magCut });
   slider.addEventListener('input', () => {
     magCut = Number(slider.value); setPref(KEYS.mag, magCut);
-    if (zoom && !shown(zoom.p)) { zoom = null; applyView(); }
+    if (selP && !shown(selP)) selP = null;
     renderTables(); chart?.redraw(false); drawPolar();
   });
 
@@ -265,10 +267,9 @@ function onWorker(e) {
   computing = false;
   grid = pending.gridT;
   passes = ps;
-  if (zoom) {
-    const z = zoom.p;
-    zoom.p = passes.find((p) => p.id === z.id && Math.abs(p.maxT - z.maxT) < 120);
-    if (!zoom.p || zoom.t1 < nowSec()) zoom = null;
+  if (selP) {
+    const z = selP;
+    selP = passes.find((p) => p.id === z.id && Math.abs(p.maxT - z.maxT) < 120) ?? null;
   }
   if (chart) { chart.setData(chartData()); applyView(); } else buildChart();
   renderTables(); drawPolar(); setStatus();
@@ -311,35 +312,109 @@ function setStatus(msg, isError = false) {
 // ---------- chart ----------
 function chartData() { return [grid.t, grid.t.map(() => null)]; }
 
+/** Chart window: SPAN seconds from viewT0 (or just before now), kept inside the computed grid. */
 function view() {
-  if (zoom) return [zoom.t0, zoom.t1];
-  const span = RANGES[range] * 3600, now = nowSec();
-  const a = now - Math.min(3600, span * 0.1);
-  return [a, a + span];
+  let a = viewT0 ?? nowSec() - LEAD;
+  if (grid) a = Math.max(grid.t[0], Math.min(grid.t.at(-1) - SPAN, a));
+  return [a, a + SPAN];
 }
 
 function applyView() {
   markButtons();
+  root.querySelector('#sat-now').hidden = viewT0 == null;
   if (chart) { const [min, max] = view(); chart.setScale('x', { min, max }); }
+}
+
+/** Pan the chart by `ds` seconds. */
+function panBy(ds) {
+  if (!ds) return;
+  viewT0 = view()[0] + ds;
+  const live = nowSec() - LEAD;
+  if (Math.abs(viewT0 - live) < 60) viewT0 = null;  // snap back to following now
+  if (selP) { selP = null; renderPasses(); }
+  applyView();
+}
+
+/**
+ * Drag (mouse or touch) or scroll sideways to pan. A touch that doesn't move
+ * is a tap, which puts the cursor there; vertical touch drags scroll the page.
+ */
+function bindPan(u) {
+  const over = u.over;
+  over.style.touchAction = 'pan-y';
+  over.style.cursor = 'grab';
+  const secPerPx = () => SPAN / over.clientWidth;
+  let drag = null;
+  over.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    drag = { id: e.pointerId, x: e.clientX, x0: e.clientX, touch: e.pointerType !== 'mouse', moved: false };
+  });
+  over.addEventListener('pointermove', (e) => {
+    if (!drag || e.pointerId !== drag.id) return;
+    if (!drag.moved && Math.abs(e.clientX - drag.x0) < 6) return;
+    if (!drag.moved) {
+      drag.moved = true; over.style.cursor = 'grabbing';
+      try { over.setPointerCapture(e.pointerId); } catch { /* synthetic or ended pointer */ }
+    }
+    panBy((drag.x - e.clientX) * secPerPx());
+    drag.x = e.clientX;
+  });
+  const end = (e) => {
+    if (!drag || e.pointerId !== drag.id) return;
+    if (!drag.moved && drag.touch && e.type === 'pointerup') {
+      const r = over.getBoundingClientRect();
+      u.setCursor({ left: e.clientX - r.left, top: e.clientY - r.top }, true);
+    }
+    drag = null; over.style.cursor = 'grab';
+  };
+  over.addEventListener('pointerup', end);
+  over.addEventListener('pointercancel', end);
+  over.addEventListener('wheel', (e) => {
+    const d = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.shiftKey ? e.deltaY : 0;
+    if (!d) return;
+    e.preventDefault();
+    panBy(d * (e.deltaMode === 1 ? 16 : 1) * secPerPx());
+  }, { passive: false });
 }
 
 function markButtons() {
   const press = (sel, key, val) => root.querySelectorAll(`${sel} button`).forEach((b) =>
     b.setAttribute('aria-pressed', String(b.dataset[key] === val)));
   press('#sat-tz', 'tz', tz);
-  press('#sat-range', 'range', zoom ? null : range);
   press('#sat-sort', 'sort', sortMode);
   press('#sat-week-mode', 'mode', weekMode);
 }
 
-function nightIntervals() {
-  const out = [], { t, sunEl } = grid;
-  let a = null;
-  for (let i = 0; i < t.length; i++) {
-    if (sunEl[i] < 0 && a == null) a = t[i];
-    if ((sunEl[i] >= 0 || i === t.length - 1) && a != null) { out.push([a, t[i]]); a = null; }
-  }
-  return out;
+/** 0 day, 1 civil, 2 nautical, 3 astronomical twilight, 4 night. */
+const skyLevel = (sunEl) => (sunEl >= 0 ? 0 : sunEl >= -6 ? 1 : sunEl >= -12 ? 2 : sunEl >= -18 ? 3 : 4);
+
+/** Background shading by Sun elevation: clear by day, darker through each twilight to night. */
+function skyShadePlugin() {
+  return {
+    hooks: {
+      drawClear(u) {
+        if (!grid) return;
+        const ctx = u.ctx, { left, top, width, height } = u.bbox, { t, sunEl } = grid;
+        const [x0, x1] = [u.scales.x.min, u.scales.x.max];
+        let i = Math.max(0, Math.floor((x0 - t[0]) / SATS.window.stepSec) - 1);
+        ctx.save();
+        ctx.beginPath(); ctx.rect(left, top, width, height); ctx.clip();
+        ctx.fillStyle = cssVar('--sky-shade');
+        while (i < t.length - 1 && t[i] <= x1) {
+          const lv = skyLevel(sunEl[i]);
+          let j = i + 1;
+          while (j < t.length - 1 && skyLevel(sunEl[j]) === lv) j++;
+          if (lv) {
+            const a = Math.round(u.valToPos(t[i], 'x', true)), b = Math.round(u.valToPos(t[j], 'x', true));
+            ctx.globalAlpha = lv / 4;
+            ctx.fillRect(a, top, b - a, height);
+          }
+          i = j;
+        }
+        ctx.restore();
+      },
+    },
+  };
 }
 
 /**
@@ -403,17 +478,17 @@ function buildChart() {
   chart?.destroy(); chart = null;
   markButtons();
   if (!grid) return;
-  const nights = nightIntervals();
   chart = makeChart(root.querySelector('#sat-el'), {
-    tz, h24: true, timeLabel: tzLabel(), now: nowSec, shade: () => nights, legend: false,
+    tz, h24: true, timeLabel: tzLabel(), now: nowSec, legend: false, touch: false,
     height: matchMedia('(max-width: 559px)').matches ? 200 : 240,
     data: chartData(),
     series: [{ label: 'Elevation', color: '--text-muted' }],
     yRange: [0, 90], ySplits: () => [0, 30, 60, 90], yValues: (u, v) => v.map((x) => `${x}°`),
     xRange: view,
-    plugins: [passPlugin()],
+    plugins: [skyShadePlugin(), passPlugin()],
     hooks: { setCursor: [(u) => { cursorIdx = u.cursor.idx ?? null; drawPolar(); }] },
   });
+  bindPan(chart);
 }
 
 // ---------- tables ----------
@@ -443,11 +518,11 @@ function renderPasses() {
   body.innerHTML = list.map(({ p, idx }) => {
     const s = sats.get(p.id);
     const visMin = Math.max(1, Math.round((p.vis.t1 - p.vis.t0) / 60));
-    const sel = zoom?.p === p;
+    const sel = selP === p;
     const live = p.rise <= now ? ' live' : '';
     return `<tr data-p="${idx}" tabindex="0" class="${sel ? 'sel' : ''}${live}" aria-pressed="${sel}" ` +
       `title="${s.ctName} (#${s.id}), standard magnitude ${s.stdMag} (${s.stdSrc}). ` +
-      `Visible ${fmtHM(p.vis.t0)}–${fmtHM(p.vis.t1)}, brightest at ${fmtHM(p.vis.magT)}. Click to zoom the chart to this pass.">` +
+      `Visible ${fmtHM(p.vis.t0)}–${fmtHM(p.vis.t1)}, brightest at ${fmtHM(p.vis.magT)}. Click to show this pass on the chart.">` +
       `<th scope="row"><span class="swatch" style="border-color:${magColor(p.vis.mag, chartRamp)}"></span>${s.name}</th>` +
       `<td>${fmtTime(p.rise, tz, true)} <span class="muted">${dir8(p.riseAz)}</span></td>` +
       `<td>${p.maxEl.toFixed(0)}°</td>` +
@@ -485,15 +560,13 @@ function renderWeek() {
   }).join('');
 }
 
+/** Centre the chart on a pass (or, clicked again, go back to now). */
 function zoomToPass(p) {
   if (!p) return;
-  if (zoom?.p === p) zoom = null;
-  else {
-    const pad = Math.max(180, (p.set - p.rise) * 0.4);
-    zoom = { t0: p.rise - pad, t1: p.set + pad, p };
-  }
+  if (selP === p) { selP = null; viewT0 = null; }
+  else { selP = p; viewT0 = (p.rise + p.set) / 2 - SPAN / 2; }
   applyView(); renderTables();
-  if (zoom && chart) {
+  if (selP && chart) {
     chart.setCursor({ left: chart.valToPos(p.vis.magT ?? p.maxT, 'x'), top: chart.over.clientHeight / 2 }, true);
   }
 }
@@ -522,14 +595,6 @@ function skyLook(sunEl) {
   const f = e1 === e0 ? 0 : clamp01((sunEl - e0) / (e1 - e0));
   const rgb = c0.map((c, j) => Math.round(lerp(c, c1[j], f)));
   return { fill: `rgb(${rgb})`, starA: lerp(a0, a1, f) };
-}
-
-function starColor(bv) {
-  if (bv < 0) return '170,195,255';
-  if (bv < 0.4) return '225,232,255';
-  if (bv < 0.8) return '255,246,225';
-  if (bv < 1.2) return '255,222,175';
-  return '255,196,140';
 }
 
 const PLANETS = [
@@ -611,7 +676,7 @@ function drawPolar() {
     const [x, y] = xyHor(...h), mag = STARS[i][2];
     starXY[i] = [x, y];
     const r = Math.max(0.55, Math.min(3.4, 2.7 - 0.5 * mag));
-    ctx.fillStyle = `rgba(${starColor(STARS[i][3])},${look.starA * Math.min(1, 1.15 - mag * 0.12)})`;
+    ctx.fillStyle = `rgba(235,240,255,${look.starA * Math.min(1, 1.15 - mag * 0.12)})`;
     ctx.beginPath(); ctx.arc(x, y, r, 0, 2 * Math.PI); ctx.fill();
   }
   // Labels sit right of their object (x + gap), or left of it when they would run off the disk.

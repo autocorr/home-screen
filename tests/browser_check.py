@@ -139,11 +139,37 @@ with sync_playwright() as p:
             pg.wait_for_timeout(250)
             t_cur = pg.inner_text("#sat-polar-info .pi-time")
             check("satellite chart cursor -> sky view time", not t_cur.startswith("Now"), t_cur)
+            # The axes are canvas: compare the sky-view time under the same point before and after.
+            def ticks():
+                pg.touchscreen.tap(x, y) if opts.get("has_touch") else pg.mouse.move(x, y)
+                pg.wait_for_timeout(150)
+                return pg.inner_text("#sat-polar-info .pi-time")
+            before = ticks()
+            if opts.get("has_touch"):
+                pg.evaluate("""(() => {
+                  const o = document.querySelector('#sat-el .u-over'), r = o.getBoundingClientRect(), y = r.top + 40;
+                  const ev = (type, x) => o.dispatchEvent(new PointerEvent(type, { pointerId: 7, pointerType: 'touch',
+                    isPrimary: true, button: 0, clientX: x, clientY: y, bubbles: true }));
+                  ev('pointerdown', r.left + r.width * 0.8);
+                  for (let i = 1; i <= 10; i++) ev('pointermove', r.left + r.width * (0.8 - 0.06 * i));
+                  ev('pointerup', r.left + r.width * 0.2);
+                })()""")
+            else:
+                pg.mouse.move(b["x"] + b["width"] * 0.8, y); pg.mouse.down()
+                pg.mouse.move(b["x"] + b["width"] * 0.2, y, steps=10); pg.mouse.up()
+            pg.wait_for_timeout(250)
+            panned = ticks()
+            check("dragging pans the satellite chart", panned != before and pg.is_visible("#sat-now"),
+                  f"{before!r} -> {panned!r}")
+            pg.tap("#sat-now") if opts.get("has_touch") else pg.click("#sat-now")
+            pg.wait_for_timeout(150)
+            back = ticks()
+            check("Now returns the chart to the current time", back == before and not pg.is_visible("#sat-now"),
+                  f"{back!r}, Now button visible: {pg.is_visible('#sat-now')}")
             first = pg.locator("#sat-passes tbody tr[data-p]").first
             first.click(); pg.wait_for_timeout(250)
-            zoomed = pg.evaluate("[...document.querySelectorAll('#sat-range button')].every(b => b.getAttribute('aria-pressed') === 'false')")
-            check("pass click zooms the chart", zoomed and "sel" in (first.get_attribute("class") or ""))
-            pg.click('#sat-range button[data-range="12h"]')
+            check("pass click shows it on the chart", "sel" in (first.get_attribute("class") or ""))
+            pg.click("#sat-now") if pg.is_visible("#sat-now") else None
 
             # Precipitation map: storage permission asked once, then model data drawn.
             # MapLibre needs WebGL2, which headless Firefox lacks; there only check

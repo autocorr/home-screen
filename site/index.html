@@ -107,12 +107,12 @@
         </figure>
         <figure class="chart-card sat-el-card">
           <figcaption class="panel-sub">
-            <span title="Each visible pass at or brighter than the cutoff. Thick where visible: sunlit with the Sun at least 6° below the horizon. Colour shows the pass's peak brightness. Shading marks night.">Elevation <span class="unit">(thick = visible · <span class="mag-ramp" aria-hidden="true"></span> brighter → fainter · shaded = night)</span></span>
-            <span class="seg" id="sat-range" role="group" aria-label="Time range">
-              <button data-range="3h">3 h</button><button data-range="12h">12 h</button><button data-range="24h">24 h</button><button data-range="48h">48 h</button>
-            </span>
+            <span title="Each visible pass at or brighter than the cutoff. Thick where visible: sunlit with the Sun at least 6° below the horizon. Colour shows the pass's peak brightness. The background darkens through civil, nautical and astronomical twilight to night. Drag or scroll sideways to move through the next 48 hours.">Elevation <span class="unit">(thick = visible · <span class="mag-ramp" aria-hidden="true"></span> brighter → fainter · darker = night · drag to pan)</span></span>
           </figcaption>
-          <div class="chart" id="sat-el"></div>
+          <div class="sat-el-wrap">
+            <div class="chart" id="sat-el"></div>
+            <button class="btn" id="sat-now" hidden title="Back to the current time">Now</button>
+          </div>
         </figure>
         <div class="sat-passes-card">
           <div class="panel-sub">

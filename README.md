@@ -12,10 +12,10 @@ Sections can be collapsed by tapping their heading, and reordered or hidden with
   and elevation/azimuth vs time for 3C48, 3C84, 3C138, 3C147, 3C286, Sun and Moon over ±12 h.
 - **Satellites · Socorro**: passes of CelesTrak's ~150 brightest satellites, trimmed by
   a magnitude-cutoff slider. A sky view (stars to magnitude 4, constellation figures, Sun,
-  Moon and planets) sits above an elevation-vs-time chart of the next 48 h. Below them are
-  the brightest (or soonest) passes and a table of ISS passes for the next 7 days, all with
-  estimated peak brightness. Hover or drag along the chart to move the sky view to that
-  time; tap a pass to zoom the chart to it.
+  Moon and planets) sits above an elevation-vs-time chart: a 2 h window that pans through
+  the next 48 h. Below them are the brightest (or soonest) passes and a table of ISS passes
+  for the next 7 days, all with estimated peak brightness. Hover or tap the chart to move the
+  sky view to that time; tap a pass to centre the chart on it.
 - **Weather · Socorro**: current conditions, 7-day summary, and hourly charts from
   [Open-Meteo](https://open-meteo.com/) (temperature, precipitation, cloud layers, wind,
   humidity, precipitable water, pressure, UV, solar radiation, visibility, CAPE,
@@ -129,12 +129,15 @@ the pass list; dragging it brighter trims the clutter. At 2.5 there are typicall
 
 - **Chart:** each shown pass, coloured by its peak brightness on a one-hue ramp (strong =
   bright, pale = near the cutoff), thick where visible, with the satellite's name at the
-  peak where labels don't collide. There is no per-satellite legend: the names and the
+  peak where labels don't collide. The window is 2 h; drag it (mouse or one finger) or
+  scroll sideways (trackpad, or Shift + wheel) to pan from 1 h ago to 48 h ahead, and
+  **Now** returns to the current time. The background is clear by day and darkens through
+  civil, nautical and astronomical twilight to night. There is no per-satellite legend: the names and the
   pass list identify them.
 - **Sky view:** passes in progress at the chart's time, and faintly, passes starting within
   30 min with their rise time. The readout below lists what's up, brightest first.
 - **Pass list:** the 10 brightest passes in the next 48 h, or the 10 soonest. Tap one to
-  zoom the chart to it.
+  centre the chart on it.
 - **ISS week table:** unaffected by the cutoff; all ISS passes or only visible ones.
 
 **Orbits.** Positions come from CelesTrak's GP elements (TLEs), propagated with SGP4
@@ -184,13 +187,14 @@ head to the north. The disk's colour follows the Sun's elevation. Star positions
 Hipparcos positions rotated to the horizon of date with astronomy-engine (precession and
 nutation, no refraction). `scripts/build_starmap.py` regenerates `js/data/starmap.js` from
 [d3-celestial](https://github.com/ofrohn/d3-celestial)'s data (BSD-3-Clause): 472 stars to
-magnitude 4.0, the constellation stick figures and names, and names for the brightest stars.
+magnitude 4.0 (all drawn white, sized by magnitude), the constellation stick figures and
+names, and names for the brightest stars.
 
 **Download and storage size.**
 
 | What | Size (gzip as served by GitHub Pages) | Kept where |
 |---|---|---|
-| Star catalogue `js/data/starmap.js` | 25 kB (9.6 kB) | Browser HTTP cache (GitHub Pages: `max-age=600`, then a 304 revalidation) |
+| Star catalogue `js/data/starmap.js` | 23 kB (8.8 kB) | Browser HTTP cache (GitHub Pages: `max-age=600`, then a 304 revalidation) |
 | Magnitudes `js/data/satmags.js` | 1.4 kB | Same |
 | satellite.js | 24 kB (11 kB) | Same |
 | `sats.js`, `sats-worker.js`, `tle.js` | 46 kB (17 kB) | Same |
@@ -315,7 +319,7 @@ uv run tests/firefox_selenium_check.py            # your installed Firefox via g
 The checks cover: no horizontal scroll, no element overflowing its box, clocks
 ticking, all charts drawn, tap/hover cursor sync, the satellite section (elements fetched
 once and cached, stars drawn, chart cursor moving the sky view, passes sorted by brightness,
-the magnitude cutoff, zooming to a pass, the ISS week table, no computation while collapsed), section collapse and order
+the magnitude cutoff, panning the chart, showing a pass, the ISS week table, no computation while collapsed), section collapse and order
 persisting, theme, the weather cache being reused on reload, the precipitation map
 (storage prompt, model run loaded, value at Socorro, timeline), the radar view (scans and
 RRFS runs loaded, starting at the latest scan, dBZ readout, stepping into the forecast,
