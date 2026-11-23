@@ -9,10 +9,7 @@
     uv run tests/browser_check.py [--engine firefox|chromium] [--url URL] [--shots DIR]
 """
 import argparse
-import hashlib
-import json
 import sys
-import time
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
@@ -36,27 +33,9 @@ PROFILES = {
     "desktop": dict(viewport={"width": 1280, "height": 900}),
 }
 
-# CelesTrak's usage policy: GP data changes every 2 h, download it at most once per
-# update, and stop after any non-200 answer. Every test context starts with empty
-# storage, so responses (refusals included) are kept on disk for 2 h and shared by all
-# contexts and runs. After a refusal, delete tests/.cache/celestrak once it is resolved.
-CACHE = Path(__file__).resolve().parent / ".cache" / "celestrak"
-CACHE_S = 2 * 3600
-def celestrak_route(route):
-    url = route.request.url
-    f = CACHE / (hashlib.sha256(url.encode()).hexdigest()[:24] + ".json")
-    hit = json.loads(f.read_text()) if f.exists() else None
-    if hit and hit["status"] != 200:
-        pass  # a refusal: never ask again automatically
-    elif not hit or time.time() - hit["at"] > CACHE_S:
-        r = route.fetch()
-        hit = {"url": url, "at": time.time(), "status": r.status, "body": r.body().decode("utf-8", "replace")}
-        CACHE.mkdir(parents=True, exist_ok=True)
-        f.write_text(json.dumps(hit))
-        if r.status != 200:
-            print(f"  CelesTrak answered {r.status} for {url}; not asking again until {f} is deleted")
-    route.fulfill(status=hit["status"], body=hit["body"],
-                  headers={"access-control-allow-origin": "*", "content-type": "text/plain"})
+# CelesTrak is never contacted: tests/celestrak_mock.py answers its GP queries with
+# generated element sets (its usage policy limits downloads, and tests run often).
+from celestrak_mock import CELESTRAK, celestrak_mock
 
 with sync_playwright() as p:
     browser = getattr(p, args.engine).launch()
@@ -73,7 +52,8 @@ with sync_playwright() as p:
             pg.on("request", lambda r: wx_reqs.append(r.url) if "open-meteo" in r.url and "/v1/" in r.url else None)
             tle_reqs = []
             pg.on("request", lambda r: tle_reqs.append(r.url) if "celestrak" in r.url else None)
-            pg.route("**/celestrak.org/**", celestrak_route)
+            mocked = []
+            ctx.route(CELESTRAK, celestrak_mock(mocked))
             pg.goto(args.url)
             pg.wait_for_function("document.querySelectorAll('#wx-charts .uplot').length > 10", timeout=15000)
 
@@ -365,6 +345,8 @@ with sync_playwright() as p:
             check("theme override persists", pg.evaluate("document.documentElement.dataset.theme") in ("light", "dark"))
             check("weather served from cache on reload", not wx_reqs, f"{len(wx_reqs)} data requests")
             check("satellite elements fetched once", len(tle_reqs) <= 2, "; ".join(tle_reqs)[:200])
+            check("CelesTrak never contacted (all requests mocked)", tle_reqs and all(u in mocked for u in tle_reqs),
+                  f"{len(tle_reqs)} requests, {len(mocked)} mocked")
             check("status shows model run", "run" in pg.inner_text("#wx-status"), pg.inner_text("#wx-status"))
             check("no JS errors", not errors, "; ".join(errors)[:200])
             ctx.close()

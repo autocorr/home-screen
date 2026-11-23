@@ -321,10 +321,20 @@ can sit on the same slider. `site/js/map/openmeteo.js` is the reference implemen
 
 ## Testing in browsers
 
-The browser tests keep CelesTrak's answers in `tests/.cache/celestrak/` for 2 h, so
-repeated runs don't download again. A refusal is kept until you delete that folder, so
-tests never retry it automatically. `firefox_selenium_check.py` doesn't download from
-CelesTrak at all.
+**Every network service is mocked in the tests.** The test suite must never contact a real
+service: CelesTrak, Open-Meteo (API and the map files on S3), IEM radar, or the basemap tile
+servers. A new data source needs a mock in `tests/` in the same change. A problem that only
+shows up against a live service is fixed when it appears in production.
+
+Not done yet: `browser_check.py` and `firefox_selenium_check.py` still load Open-Meteo,
+radar and map data live. They need mocks like CelesTrak's.
+
+The tests never contact CelesTrak:
+- `browser_check.py` answers every CelesTrak request with `tests/celestrak_mock.py`. The
+  mock serves generated CSV element sets in CelesTrak's format: realistic low-Earth orbits
+  for the satellites in `satmags.js` and `config.js`, with epochs a few hours old.
+- `firefox_selenium_check.py` doesn't load satellite data at all.
+- `tle_policy_check.mjs` stubs `fetch`.
 
 ```sh
 python3 -m http.server -d site 8765 &
