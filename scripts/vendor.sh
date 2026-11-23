@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # Refresh the vendored browser libraries in site/vendor.
-# Usage: scripts/vendor.sh [uplot] [astronomy_engine] [maplibre_gl] [weather_map_layer]
+# Usage: scripts/vendor.sh [uplot] [astronomy_engine] [maplibre_gl] [weather_map_layer] [satellite_js]
 set -euo pipefail
 UPLOT=${1:-1.6.32}
 ASTRO=${2:-2.1.19}
 MAPLIBRE=${3:-6.17.0}
 WML=${4:-0.3.2}
+SATJS=${5:-6.0.2}
 NPM=https://cdn.jsdelivr.net/npm
 cd "$(dirname "$0")/../site/vendor"
 curl -sfLO "${NPM}/uplot@${UPLOT}/dist/uPlot.iife.min.js"
@@ -27,5 +28,10 @@ for f in dist/index.mjs dist/worker.js dist/om_file_format.web.mjs dist/om_file_
   curl -sfLo "weather-map-layer/$(basename "$f")" "${NPM}/@openmeteo/weather-map-layer@${WML}/${f}"
 done
 
-echo "uPlot ${UPLOT}, astronomy-engine ${ASTRO}, maplibre-gl ${MAPLIBRE}, @openmeteo/weather-map-layer ${WML}" > VERSIONS
+# satellite.js (MIT): SGP4 orbit propagation, UMD build (global `satellite`).
+mkdir -p satellite.js
+curl -sfLo satellite.js/satellite.min.js "${NPM}/satellite.js@${SATJS}/dist/satellite.min.js"
+curl -sfLo satellite.js/LICENSE.md "${NPM}/satellite.js@${SATJS}/LICENSE.md"
+
+echo "uPlot ${UPLOT}, astronomy-engine ${ASTRO}, maplibre-gl ${MAPLIBRE}, @openmeteo/weather-map-layer ${WML}, satellite.js ${SATJS}" > VERSIONS
 ls -lR

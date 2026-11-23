@@ -134,7 +134,7 @@ function decorPlugin({ now, shade, hlines }) {
 
 /**
  * Create a responsive uPlot chart in `el`.
- * opts: { series:[{label,color,fmt,points,paths,dash,width}], data, yRange, yLabel,
+ * opts: { series:[{label,color,fmt,points,paths,dash,width}], data, yRange, yLabel, legend (false hides),
  *         yValues, ySplits, syncKey, now, shade, hlines, height, xRange, plugins, hooks }
  */
 export function makeChart(el, opts) {
@@ -168,7 +168,7 @@ export function makeChart(el, opts) {
       focus: { prox: 16 },
     },
     focus: { alpha: 0.35 },
-    legend: { live: true },
+    legend: { show: opts.legend !== false, live: true },
     scales: {
       x: { time: true, range: opts.xRange ? () => opts.xRange() : undefined },
       y: { range: opts.yRange ?? ((u, min, max) => padRange(min, max)) },

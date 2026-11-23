@@ -10,6 +10,12 @@ Sections can be collapsed by tapping their heading, and reordered or hidden with
 - **World time**: Japan, Germany, India (offset shown relative to MT).
 - **Sky at the VLA**: table (El, Az, HA, Sun separation, next rise/set), polar sky view,
   and elevation/azimuth vs time for 3C48, 3C84, 3C138, 3C147, 3C286, Sun and Moon over ±12 h.
+- **Satellites · Socorro**: passes of CelesTrak's ~150 brightest satellites, trimmed by
+  a magnitude-cutoff slider. A sky view (stars to magnitude 4, constellation figures, Sun,
+  Moon and planets) sits above an elevation-vs-time chart of the next 48 h. Below them are
+  the brightest (or soonest) passes and a table of ISS passes for the next 7 days, all with
+  estimated peak brightness. Hover or drag along the chart to move the sky view to that
+  time; tap a pass to zoom the chart to it.
 - **Weather · Socorro**: current conditions, 7-day summary, and hourly charts from
   [Open-Meteo](https://open-meteo.com/) (temperature, precipitation, cloud layers, wind,
   humidity, precipitable water, pressure, UV, solar radiation, visibility, CAPE,
@@ -37,6 +43,11 @@ site/
   js/config.js        locations, sources, world clocks, links, section list  <- edit here
   js/astro.js         pure astronomy helpers (no DOM)
   js/sky.js           sky table, polar plot, el/az charts
+  js/sats.js          satellites section: sky view canvas, pass chart, tables, cutoff slider
+  js/sats-worker.js   Web Worker: SGP4 pass finding, sunlight and brightness
+  js/tle.js           CelesTrak orbital elements: fetch, parse, localStorage cache
+  js/data/starmap.js  bright stars, constellation lines and labels (generated)
+  js/data/satmags.js  satellite standard magnitudes (generated)
   js/weather.js       Open-Meteo fetch + localStorage cache + charts
   js/clocks.js        MT/UTC/LST and world clocks
   js/links.js         links section
@@ -49,10 +60,12 @@ site/
   js/map/iem.js       observed radar data layer (IEM NEXRAD mosaic tiles, decoded to dBZ)
   js/map/storage.js   map data block cache (disk or memory) and its permission
   js/map/colormaps.js Turbo colour scales (precipitation, reflectivity) for weather-map-layer
-  vendor/             uPlot, astronomy-engine, maplibre-gl, @openmeteo/weather-map-layer (see VERSIONS)
+  vendor/             uPlot, astronomy-engine, satellite.js, maplibre-gl, @openmeteo/weather-map-layer (see VERSIONS)
 scripts/
   check_astro.py      cross-checks site positions against astropy
   astro_dump.mjs      helper used by check_astro.py
+  build_starmap.py    regenerates js/data/starmap.js from d3-celestial's data
+  build_satmags.py    regenerates js/data/satmags.js from McCants' magnitudes
   vendor.sh           re-download vendored libraries
 .github/workflows/pages.yml   deploys site/ to GitHub Pages
 ```
@@ -98,6 +111,93 @@ Fallbacks:
 
 The status line shows the newest model run, e.g. "newest run NBM 03Z". Leaving a tab
 open all day costs about 24 × 3.6 + 2 × 1 ≈ 90 calls. The free tier allows 10,000 per day.
+
+## Satellites
+
+The section follows the whole of CelesTrak's
+[`visual` group](https://celestrak.org/NORAD/elements/gp.php?GROUP=visual&FORMAT=tle):
+about 150 of the brightest satellites, from the ISS and Tiangong down to large rocket
+stages (SL-16, CZ-4B, ...), AST SpaceMobile's BlueBirds and old Earth-observation
+satellites. BlueWalker 3 is not in the group, so it is added by catalog number
+(`SATS.extra` in `site/js/config.js`).
+
+**Magnitude cutoff.** A pass is shown when it is *visible* (see below), reaches 10°
+(`SATS.minPassEl`) and its estimated peak brightness is at least as bright as the slider
+(default magnitude 2.5, `SATS.magCut`). The cutoff applies to the chart, the sky view and
+the pass list; dragging it brighter trims the clutter. At 2.5 there are typically
+30–40 satellites and 60–70 passes in 48 h; at 0, a handful.
+
+- **Chart:** each shown pass, coloured by its peak brightness on a one-hue ramp (strong =
+  bright, pale = near the cutoff), thick where visible, with the satellite's name at the
+  peak where labels don't collide. There is no per-satellite legend: the names and the
+  pass list identify them.
+- **Sky view:** passes in progress at the chart's time, and faintly, passes starting within
+  30 min with their rise time. The readout below lists what's up, brightest first.
+- **Pass list:** the 10 brightest passes in the next 48 h, or the 10 soonest. Tap one to
+  zoom the chart to it.
+- **ISS week table:** unaffected by the cutoff; all ISS passes or only visible ones.
+
+**Orbits.** Positions come from CelesTrak's GP elements (TLEs), propagated with SGP4
+([satellite.js](https://github.com/shashwatak/satellite-js)) in a Web Worker
+(`site/js/sats-worker.js`), so the page stays responsive. Each satellite is first scanned
+every 60 s, and only stretches near or above the horizon are sampled at 15 s. That is about
+0.5 M SGP4 steps for 48 h of the whole group, recomputed every 10 minutes.
+Computation and redraws pause while the section is collapsed, hidden in Settings, or the
+tab is in the background. Showing it again recomputes if the results are more than
+10 minutes old. Orbital elements keep refreshing in the background (every 6 h). Pass times agree
+with Skyfield to within a few seconds.
+
+**Fetching and caching** (`site/js/tle.js`):
+- One request for the `visual` group (~26 kB) plus one per `SATS.extra` id.
+- All the elements (~22 kB) are kept in localStorage (`sats:tle:v2`) and refetched when
+  they are older than 6 h (`SATS.refreshH`). CelesTrak updates a few times a day and asks
+  clients not to download unchanged data more often than every 2 h.
+- After a failed fetch, the page waits 30 min (`SATS.retryMin`) before trying again and
+  keeps using the old elements. The status line turns red if a refresh failed or the ISS
+  elements are more than 14 days old.
+
+**Visible** means the satellite is above the horizon, in sunlight (outside Earth's
+cylindrical shadow) and the Sun is at least 6° below the horizon at Socorro
+(`SATS.darkSunEl`). In the sky view, a dotted line means the satellite is in Earth's shadow.
+
+**Brightness** is a rough estimate. Each satellite has a standard magnitude: its
+brightness at 1000 km range and a 90° Sun–satellite–observer angle. The page treats it as a
+diffusely reflecting sphere and scales that for the actual range and phase angle.
+- Standard magnitudes come from Mike McCants' quicksat list
+  ([qsmag.zip](https://www.mmccants.org/programs/qsmag.zip)), the usual source for visual
+  observers. `scripts/build_satmags.py` extracts the values for the visual group into
+  `js/data/satmags.js` (1.4 kB). Re-run it when CelesTrak's group changes.
+- McCants has no value for about 30 newer objects (Tiangong, the BlueBirds, several Chinese
+  rocket stages and satellites). `SATS.stdMag` gives estimates for the notable ones; the
+  rest assume magnitude 4.0 (`SATS.defaultStdMag`), so they only show with a faint cutoff.
+- `SATS.stdMag` also overrides McCants' ISS value (−2.5), which predicts about −5 for an
+  overhead pass, against the −3.8 to −4 actually seen.
+- Flat antenna arrays such as the BlueBirds can differ from the estimate by a magnitude or
+  more. Glints and dimming in Earth's penumbra are not modelled.
+
+**ISS week table.** The ISS (`SATS.week`) is propagated 7 days ahead. Times several days
+out can be off by up to a minute or so, because of reboosts and changes in drag; the
+elements are refreshed every 6 h, so this improves as the date approaches.
+
+**Sky view.** North is up and east is on the left, as seen lying on your back with your
+head to the north. The disk's colour follows the Sun's elevation. Star positions are J2000
+Hipparcos positions rotated to the horizon of date with astronomy-engine (precession and
+nutation, no refraction). `scripts/build_starmap.py` regenerates `js/data/starmap.js` from
+[d3-celestial](https://github.com/ofrohn/d3-celestial)'s data (BSD-3-Clause): 472 stars to
+magnitude 4.0, the constellation stick figures and names, and names for the brightest stars.
+
+**Download and storage size.**
+
+| What | Size (gzip as served by GitHub Pages) | Kept where |
+|---|---|---|
+| Star catalogue `js/data/starmap.js` | 25 kB (9.6 kB) | Browser HTTP cache (GitHub Pages: `max-age=600`, then a 304 revalidation) |
+| Magnitudes `js/data/satmags.js` | 1.4 kB | Same |
+| satellite.js | 24 kB (11 kB) | Same |
+| `sats.js`, `sats-worker.js`, `tle.js` | 46 kB (17 kB) | Same |
+| CelesTrak `visual` group + 1 single-satellite request | 26 kB + 0.2 kB, every 6 h (not compressed) | ~22 kB of TLEs in localStorage |
+
+The star catalogue is part of the page's code, so after the first load it costs only a
+revalidation request. It uses no localStorage or Cache Storage.
 
 ## Precipitation map
 
@@ -213,7 +313,9 @@ uv run tests/firefox_selenium_check.py            # your installed Firefox via g
 ```
 
 The checks cover: no horizontal scroll, no element overflowing its box, clocks
-ticking, all charts drawn, tap/hover cursor sync, section collapse and order
+ticking, all charts drawn, tap/hover cursor sync, the satellite section (elements fetched
+once and cached, stars drawn, chart cursor moving the sky view, passes sorted by brightness,
+the magnitude cutoff, zooming to a pass, the ISS week table, no computation while collapsed), section collapse and order
 persisting, theme, the weather cache being reused on reload, the precipitation map
 (storage prompt, model run loaded, value at Socorro, timeline), the radar view (scans and
 RRFS runs loaded, starting at the latest scan, dBZ readout, stepping into the forecast,
