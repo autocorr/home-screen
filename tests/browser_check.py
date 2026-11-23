@@ -9,7 +9,10 @@
     uv run tests/browser_check.py [--engine firefox|chromium] [--url URL] [--shots DIR]
 """
 import argparse
+import hashlib
+import json
 import sys
+import time
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
@@ -33,16 +36,27 @@ PROFILES = {
     "desktop": dict(viewport={"width": 1280, "height": 900}),
 }
 
-# CelesTrak asks clients not to re-download unchanged data; every test context
-# starts with empty storage, so serve its responses from one fetch per run.
-celestrak = {}
+# CelesTrak's usage policy: GP data changes every 2 h, download it at most once per
+# update, and stop after any non-200 answer. Every test context starts with empty
+# storage, so responses (refusals included) are kept on disk for 2 h and shared by all
+# contexts and runs. After a refusal, delete tests/.cache/celestrak once it is resolved.
+CACHE = Path(__file__).resolve().parent / ".cache" / "celestrak"
+CACHE_S = 2 * 3600
 def celestrak_route(route):
     url = route.request.url
-    if url not in celestrak:
+    f = CACHE / (hashlib.sha256(url.encode()).hexdigest()[:24] + ".json")
+    hit = json.loads(f.read_text()) if f.exists() else None
+    if hit and hit["status"] != 200:
+        pass  # a refusal: never ask again automatically
+    elif not hit or time.time() - hit["at"] > CACHE_S:
         r = route.fetch()
-        celestrak[url] = (r.status, r.body())
-    status, body = celestrak[url]
-    route.fulfill(status=status, body=body, headers={"access-control-allow-origin": "*", "content-type": "text/plain"})
+        hit = {"url": url, "at": time.time(), "status": r.status, "body": r.body().decode("utf-8", "replace")}
+        CACHE.mkdir(parents=True, exist_ok=True)
+        f.write_text(json.dumps(hit))
+        if r.status != 200:
+            print(f"  CelesTrak answered {r.status} for {url}; not asking again until {f} is deleted")
+    route.fulfill(status=hit["status"], body=hit["body"],
+                  headers={"access-control-allow-origin": "*", "content-type": "text/plain"})
 
 with sync_playwright() as p:
     browser = getattr(p, args.engine).launch()
@@ -108,7 +122,7 @@ with sync_playwright() as p:
             # Satellites: elements fetched and cached, sky view drawn, chart cursor drives it.
             pg.wait_for_function("document.querySelector('#sat-el .uplot')", timeout=15000)
             check("satellite elements cached", pg.evaluate(
-                "Object.keys(JSON.parse(localStorage.getItem('sats:tle:v2')).sats).length") >= 100)
+                "Object.keys(JSON.parse(localStorage.getItem('sats:gp:v3')).sats).length") >= 100)
             check("satellite status", "CelesTrak" in pg.inner_text("#sat-status") and
                   "error" not in (pg.get_attribute("#sat-status", "class") or ""), pg.inner_text("#sat-status"))
             pg.locator("#sat-polar").scroll_into_view_if_needed()

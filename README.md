@@ -115,7 +115,7 @@ open all day costs about 24 × 3.6 + 2 × 1 ≈ 90 calls. The free tier allows 1
 ## Satellites
 
 The section follows the whole of CelesTrak's
-[`visual` group](https://celestrak.org/NORAD/elements/gp.php?GROUP=visual&FORMAT=tle):
+[`visual` group](https://celestrak.org/NORAD/elements/gp.php?GROUP=visual&FORMAT=csv):
 about 150 of the brightest satellites, from the ISS and Tiangong down to large rocket
 stages (SL-16, CZ-4B, ...), AST SpaceMobile's BlueBirds and old Earth-observation
 satellites. BlueWalker 3 is not in the group, so it is added by catalog number
@@ -150,14 +150,27 @@ tab is in the background. Showing it again recomputes if the results are more th
 10 minutes old. Orbital elements keep refreshing in the background (every 6 h). Pass times agree
 with Skyfield to within a few seconds.
 
-**Fetching and caching** (`site/js/tle.js`):
-- One request for the `visual` group (~26 kB) plus one per `SATS.extra` id.
-- All the elements (~22 kB) are kept in localStorage (`sats:tle:v2`) and refetched when
-  they are older than 6 h (`SATS.refreshH`). CelesTrak updates a few times a day and asks
-  clients not to download unchanged data more often than every 2 h.
-- After a failed fetch, the page waits 30 min (`SATS.retryMin`) before trying again and
-  keeps using the old elements. The status line turns red if a refresh failed or the ISS
-  elements are more than 14 days old.
+**Fetching and caching** (`site/js/tle.js`), following CelesTrak's
+[usage policy](https://celestrak.org/usage-policy.php):
+- Elements are GP data in CelesTrak's CSV (OMM) format, read with satellite.js's
+  `json2satrec`. The policy asks for CSV: the legacy TLE format is no longer served for
+  newer (6-digit) catalog numbers, and JSON is ~3× larger.
+- One request for the `visual` group plus one per `SATS.extra` id that the group doesn't
+  include. The browser asks for gzip/brotli compression itself.
+- The elements are kept in localStorage (`sats:gp:v3`) and downloaded again when they are
+  older than 6 h (`SATS.refreshH`). CelesTrak updates GP data every 2 h and asks for at
+  most one download per update. Each attempt is recorded before it is sent, so open tabs
+  share it rather than each downloading.
+- **Non-200 answers.** The policy asks clients to stop querying and tell a human.
+  - 500/503: no further requests for 30 min (`SATS.retryMin`; the policy asks for at least 15).
+  - Any other status (a 403 block, a 404, a redirect, or a 200 with no usable data): automatic
+    downloads stop completely, in every tab and across reloads. The status line shows
+    CelesTrak's explanation with a **Retry** button, which allows one new attempt.
+  - Network failures (no answer at all) are retried after 30 min.
+  - The page keeps using the elements it already has. The status line also turns red when
+    the ISS elements are more than 14 days old.
+- `scripts/build_satmags.py` also uses CSV and stops at the first error. Don't run it more
+  often than every 2 h.
 
 **Visible** means the satellite is above the horizon, in sunlight (outside Earth's
 cylindrical shadow) and the Sun is at least 6° below the horizon at Socorro
@@ -198,7 +211,7 @@ names, and names for the brightest stars.
 | Magnitudes `js/data/satmags.js` | 1.4 kB | Same |
 | satellite.js | 24 kB (11 kB) | Same |
 | `sats.js`, `sats-worker.js`, `tle.js` | 46 kB (17 kB) | Same |
-| CelesTrak `visual` group + 1 single-satellite request | 26 kB + 0.2 kB, every 6 h (not compressed) | ~22 kB of TLEs in localStorage |
+| CelesTrak `visual` group + 1 single-satellite request (CSV) | ~22 kB + 0.3 kB, every 6 h (compressed in transfer) | ~55 kB of elements in localStorage |
 
 The star catalogue is part of the page's code, so after the first load it costs only a
 revalidation request. It uses no localStorage or Cache Storage.
@@ -308,12 +321,18 @@ can sit on the same slider. `site/js/map/openmeteo.js` is the reference implemen
 
 ## Testing in browsers
 
+The browser tests keep CelesTrak's answers in `tests/.cache/celestrak/` for 2 h, so
+repeated runs don't download again. A refusal is kept until you delete that folder, so
+tests never retry it automatically. `firefox_selenium_check.py` doesn't download from
+CelesTrak at all.
+
 ```sh
 python3 -m http.server -d site 8765 &
 uv run --with playwright python -m playwright install firefox chromium   # once
 uv run tests/browser_check.py                     # Playwright Firefox (Gecko): phone + desktop, light + dark
 uv run tests/browser_check.py --engine chromium   # same checks in Chromium
 uv run tests/firefox_selenium_check.py            # your installed Firefox via geckodriver
+node tests/tle_policy_check.mjs                   # CelesTrak usage-policy handling (no network)
 ```
 
 The checks cover: no horizontal scroll, no element overflowing its box, clocks
