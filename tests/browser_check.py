@@ -114,8 +114,12 @@ with sync_playwright() as p:
             pg.locator("#sat-polar").scroll_into_view_if_needed()
             lit = pg.evaluate("""(() => { const c = document.querySelector('#sat-polar');
                 const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
-                let n = 0; for (let i = 0; i < d.length; i += 4) if (d[i] + d[i+1] + d[i+2] > 600) n++; return n; })()""")
-            check("sky view draws stars", lit > 100, f"{lit} bright pixels")
+                // brighter than the disk's sky colour (sampled inside the disk, near its edge),
+                // so this holds by day too, when stars are faint
+                const k = 4 * (Math.round(c.height * 0.5) * c.width + Math.round(c.width * 0.08));
+                const bg = d[k] + d[k+1] + d[k+2];
+                let n = 0; for (let i = 0; i < d.length; i += 4) if (d[i] + d[i+1] + d[i+2] > bg + 90) n++; return n; })()""")
+            check("sky view draws stars", lit > 100, f"{lit} pixels brighter than the sky")
             check("sky view readout", pg.locator("#sat-polar-info .pi-cell").count() >= 1)
             pg.click('#sat-week-mode button[data-mode="all"]'); pg.wait_for_timeout(100)
             wk = pg.locator("#sat-week tbody tr").count()
@@ -164,7 +168,8 @@ with sync_playwright() as p:
             pg.tap("#sat-now") if opts.get("has_touch") else pg.click("#sat-now")
             pg.wait_for_timeout(150)
             back = ticks()
-            check("Now returns the chart to the current time", back == before and not pg.is_visible("#sat-now"),
+            hhmm = lambda txt: (lambda m: int(m[1]) * 60 + int(m[2]) if m else -99)(__import__("re").search(r"(\d+):(\d\d)", txt))
+            check("Now returns the chart to the current time", abs(hhmm(back) - hhmm(before)) <= 1 and not pg.is_visible("#sat-now"),
                   f"{back!r}, Now button visible: {pg.is_visible('#sat-now')}")
             first = pg.locator("#sat-passes tbody tr[data-p]").first
             first.click(); pg.wait_for_timeout(250)

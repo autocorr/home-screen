@@ -10,14 +10,12 @@
   --grid: #e3dccd;          /* chart gridlines */
   --axis: #c4baa6;
   --shade: rgba(90, 70, 30, 0.07);   /* night shading on charts */
-  --sky-shade: rgba(30, 45, 100, 0.15);  /* satellite chart at night; twilight is a fraction */
   --now: #c0392b;
   --accent: #1f5fae;
 
   --series-1: #2a78d6; --series-2: #eb6834; --series-3: #1baf7a; --series-4: #e09800;
   --series-5: #e87ba4; --series-6: #008300; --series-7: #6250d6; --series-8: #e34948;
   --moon: #6f6a60;
-  --mag-bright: #8a4300; --mag-faint: #cfae7c;   /* satellite brightness ramp (one hue) */
 
   --good: #0ca30c; --warning: #fab219; --serious: #ec835a; --critical: #d03b3b;
 
@@ -29,23 +27,21 @@
   :root:not([data-theme="light"]) {
     color-scheme: dark;
     --page: #000; --text: #e9e7e2; --text-secondary: #b9b6ad; --text-muted: #85827a;
-    --rule: #2a2a2a; --grid: #1c1c1c; --axis: #333; --shade: rgba(120, 140, 255, 0.09); --sky-shade: rgba(120, 140, 255, 0.2);
+    --rule: #2a2a2a; --grid: #1c1c1c; --axis: #333; --shade: rgba(120, 140, 255, 0.09);
     --now: #e66767; --accent: #5b9bea;
     --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500;
     --series-5: #d55181; --series-6: #0ca30c; --series-7: #9085e9; --series-8: #e66767;
     --moon: #b5b3ab;
-    --mag-bright: #ffe08a; --mag-faint: #7a6334;
   }
 }
 :root[data-theme="dark"] {
   color-scheme: dark;
   --page: #000; --text: #e9e7e2; --text-secondary: #b9b6ad; --text-muted: #85827a;
-  --rule: #2a2a2a; --grid: #1c1c1c; --axis: #333; --shade: rgba(120, 140, 255, 0.09); --sky-shade: rgba(120, 140, 255, 0.2);
+  --rule: #2a2a2a; --grid: #1c1c1c; --axis: #333; --shade: rgba(120, 140, 255, 0.09);
   --now: #e66767; --accent: #5b9bea;
   --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500;
   --series-5: #d55181; --series-6: #0ca30c; --series-7: #9085e9; --series-8: #e66767;
   --moon: #b5b3ab;
-  --mag-bright: #ffe08a; --mag-faint: #7a6334;
 }
 
 * { box-sizing: border-box; }
@@ -213,7 +209,9 @@ dialog::backdrop { background: rgba(0, 0, 0, .45); }
 .sat-slider .unit { font-size: 0.72rem; }
 .sat-slider input { flex: 1; min-width: 0; height: 30px; accent-color: var(--accent); }
 .mag-ramp { display: inline-block; width: 36px; height: 8px; vertical-align: 0; border-radius: 2px;
-  background: linear-gradient(to right, var(--mag-bright), var(--mag-faint)); }
+  background: linear-gradient(to right, #fff3c4, #a08a5a) padding-box; border: 2px solid #0b1226; }
+/* Satellite brightness colours are made for the sky colours: show them on a night-sky chip. */
+.swatch.on-sky { background: #0b1226; outline: 1px solid #0b1226; }
 .polar-info .pi-wide { grid-column: 1 / -1; white-space: normal; }
 #sat-polar-info { min-height: calc(4 * 1.35em); align-content: start; }
 .sat-week-card { grid-area: week; min-width: 0; display: grid; gap: 4px; }

@@ -69,18 +69,17 @@ function fmtDay(sec) {
   return dayFmt.get(tz).format(new Date(sec * 1000)).replace(',', '');
 }
 
-// Brightness colour: one hue, strong for bright passes, pale for faint ones.
-// The chart follows the page theme (CSS tokens); the sky view is always dark.
+// Brightness colour: one hue, pale gold for bright passes, darker for faint ones.
+// Both the sky view and the chart are drawn on sky colours in either theme, so
+// they share one ramp; swatches on the page sit on a sky-coloured chip.
 const hexRGB = (h) => { const n = parseInt(h.replace('#', ''), 16); return [n >> 16 & 255, n >> 8 & 255, n & 255]; };
-let chartRamp = null;
 const SKY_RAMP = [hexRGB('#fff3c4'), hexRGB('#a08a5a')];
-function magColor(m, ramp) {
+function magColor(m, ramp = SKY_RAMP) {
   // Spread the ramp over what is shown: MAG_BRIGHT (or brighter) .. the cutoff.
   const faint = Math.max(magCut, MAG_BRIGHT + 2);
   const f = Math.max(0, Math.min(1, (m - MAG_BRIGHT) / (faint - MAG_BRIGHT)));
   return `rgb(${ramp[0].map((c, i) => Math.round(c + (ramp[1][i] - c) * f))})`;
 }
-const readChartRamp = () => { chartRamp = [hexRGB(cssVar('--mag-bright')), hexRGB(cssVar('--mag-faint'))]; };
 
 // ---------- geometry ----------
 function unitVectors(radec) {  // flat [ra, dec, ...] degrees -> Float64Array of unit vectors
@@ -139,7 +138,6 @@ export function initSats(el) {
   aeObs = new (AE().Observer)(o.lat, o.lon, o.height);
   gd = { latitude: o.lat * D2R, longitude: o.lon * D2R, height: o.height / 1000 };
   obsEcf = SAT().geodeticToEcf(gd);
-  readChartRamp();
 
   const seg = (id, fn) => root.querySelector(id).addEventListener('click', (e) => {
     const b = e.target.closest('button');
@@ -203,7 +201,7 @@ function wake() {
   else { chart?.redraw(false); renderTables(); drawPolar(); }
 }
 
-export function rerender() { if (root) { readChartRamp(); buildChart(); renderTables(); drawPolar(); } }
+export function rerender() { if (root) { buildChart(); renderTables(); drawPolar(); } }
 
 function useTLE(c) {
   tle = c;
@@ -385,10 +383,12 @@ function markButtons() {
   press('#sat-week-mode', 'mode', weekMode);
 }
 
-/** 0 day, 1 civil, 2 nautical, 3 astronomical twilight, 4 night. */
-const skyLevel = (sunEl) => (sunEl >= 0 ? 0 : sunEl >= -6 ? 1 : sunEl >= -12 ? 2 : sunEl >= -18 ? 3 : 4);
-
-/** Background shading by Sun elevation: clear by day, darker through each twilight to night. */
+/**
+ * Chart background: the sky view's own disk colour for the Sun's elevation at
+ * each moment, in either theme, so day, dawn/dusk and night look the same as
+ * in the sky view and blend through twilight. Kept in `skyGrad` for label halos.
+ */
+let skyGrad = null;
 function skyShadePlugin() {
   return {
     hooks: {
@@ -396,22 +396,18 @@ function skyShadePlugin() {
         if (!grid) return;
         const ctx = u.ctx, { left, top, width, height } = u.bbox, { t, sunEl } = grid;
         const [x0, x1] = [u.scales.x.min, u.scales.x.max];
-        let i = Math.max(0, Math.floor((x0 - t[0]) / SATS.window.stepSec) - 1);
-        ctx.save();
-        ctx.beginPath(); ctx.rect(left, top, width, height); ctx.clip();
-        ctx.fillStyle = cssVar('--sky-shade');
-        while (i < t.length - 1 && t[i] <= x1) {
-          const lv = skyLevel(sunEl[i]);
-          let j = i + 1;
-          while (j < t.length - 1 && skyLevel(sunEl[j]) === lv) j++;
-          if (lv) {
-            const a = Math.round(u.valToPos(t[i], 'x', true)), b = Math.round(u.valToPos(t[j], 'x', true));
-            ctx.globalAlpha = lv / 4;
-            ctx.fillRect(a, top, b - a, height);
-          }
-          i = j;
+        const step = SATS.window.stepSec, every = Math.max(1, Math.round(60 / step));  // a stop a minute
+        const i0 = Math.max(0, Math.floor((x0 - t[0]) / step) - every);
+        const i1 = Math.min(t.length - 1, Math.ceil((x1 - t[0]) / step) + every);
+        const g = ctx.createLinearGradient(left, 0, left + width, 0);
+        for (let i = i0; i <= i1; i += every) {
+          const f = (u.valToPos(t[i], 'x', true) - left) / width;
+          if (f < -0.05 || f > 1.05) continue;
+          g.addColorStop(clamp01(f), skyLook(sunEl[i]).fill);
         }
-        ctx.restore();
+        skyGrad = g;
+        ctx.fillStyle = g;
+        ctx.fillRect(left, top, width, height);
       },
     },
   };
@@ -438,7 +434,7 @@ function passPlugin() {
         const Y = (v) => u.valToPos(Math.max(v, -2), 'y', true);
         for (const p of list) {
           const { el, vis } = p.tr;
-          ctx.strokeStyle = magColor(p.vis.mag, chartRamp);
+          ctx.strokeStyle = magColor(p.vis.mag);
           ctx.lineWidth = 1.5 * dpr;
           ctx.beginPath();
           for (let j = 0; j < el.length; j++) ctx[j ? 'lineTo' : 'moveTo'](X(j, p), Y(el[j]));
@@ -456,7 +452,7 @@ function passPlugin() {
         // Names at the peaks, brightest first; skip any that would overlap.
         ctx.font = `600 ${10 * dpr}px system-ui, -apple-system, "Segoe UI", sans-serif`;
         ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-        ctx.lineWidth = 3 * dpr; ctx.strokeStyle = cssVar('--page'); ctx.fillStyle = cssVar('--text-secondary');
+        ctx.lineWidth = 3 * dpr; ctx.strokeStyle = skyGrad ?? '#0b1226'; ctx.fillStyle = 'rgba(232,236,245,0.92)';
         const boxes = [];
         for (const p of [...list].reverse()) {
           const text = sats.get(p.id)?.name ?? '';
@@ -480,6 +476,7 @@ function buildChart() {
   if (!grid) return;
   chart = makeChart(root.querySelector('#sat-el'), {
     tz, h24: true, timeLabel: tzLabel(), now: nowSec, legend: false, touch: false,
+    gridStroke: 'rgba(255,255,255,0.12)', nowStroke: '#ff7a6b',  // on the sky colours, as in the sky view
     height: matchMedia('(max-width: 559px)').matches ? 200 : 240,
     data: chartData(),
     series: [{ label: 'Elevation', color: '--text-muted' }],
@@ -523,7 +520,7 @@ function renderPasses() {
     return `<tr data-p="${idx}" tabindex="0" class="${sel ? 'sel' : ''}${live}" aria-pressed="${sel}" ` +
       `title="${s.ctName} (#${s.id}), standard magnitude ${s.stdMag} (${s.stdSrc}). ` +
       `Visible ${fmtHM(p.vis.t0)}–${fmtHM(p.vis.t1)}, brightest at ${fmtHM(p.vis.magT)}. Click to show this pass on the chart.">` +
-      `<th scope="row"><span class="swatch" style="border-color:${magColor(p.vis.mag, chartRamp)}"></span>${s.name}</th>` +
+      `<th scope="row"><span class="swatch on-sky" style="border-color:${magColor(p.vis.mag)}"></span>${s.name}</th>` +
       `<td>${fmtTime(p.rise, tz, true)} <span class="muted">${dir8(p.riseAz)}</span></td>` +
       `<td>${p.maxEl.toFixed(0)}°</td>` +
       `<td>${fmtHM(p.set)} <span class="muted">${dir8(p.setAz)}</span></td>` +
@@ -823,7 +820,7 @@ function renderInfo(T, hover, up, sunEl) {
   up.sort((a, b) => (a.vis ? a.q.mag : 99) - (b.vis ? b.q.mag : 99));
   const cells = up.slice(0, READOUT_CELLS).map(({ s, q, p, vis }) =>
     `<span class="pi-cell" title="${s.ctName} (#${s.id})">` +
-    `<span class="swatch" style="border-color:${magColor(p.vis.mag, chartRamp)}"></span>${s.name} ` +
+    `<span class="swatch on-sky" style="border-color:${magColor(p.vis.mag)}"></span>${s.name} ` +
     `<b>${q.el.toFixed(0)}° ${dir8(q.az)} · ${vis ? `mag ${fmtMag(q.mag)}` : q.lit ? 'sunlit' : 'in shadow'}</b></span>`);
   if (up.length > READOUT_CELLS) cells.push(`<span class="pi-cell muted">+${up.length - READOUT_CELLS} more</span>`);
   if (!up.length) {
