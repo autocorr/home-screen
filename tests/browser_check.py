@@ -33,6 +33,17 @@ PROFILES = {
     "desktop": dict(viewport={"width": 1280, "height": 900}),
 }
 
+# CelesTrak asks clients not to re-download unchanged data; every test context
+# starts with empty storage, so serve its responses from one fetch per run.
+celestrak = {}
+def celestrak_route(route):
+    url = route.request.url
+    if url not in celestrak:
+        r = route.fetch()
+        celestrak[url] = (r.status, r.body())
+    status, body = celestrak[url]
+    route.fulfill(status=status, body=body, headers={"access-control-allow-origin": "*", "content-type": "text/plain"})
+
 with sync_playwright() as p:
     browser = getattr(p, args.engine).launch()
     print(f"{args.engine} {browser.version}")
@@ -46,6 +57,9 @@ with sync_playwright() as p:
             pg.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
             # Data requests only (cost API calls); model meta.json checks are free.
             pg.on("request", lambda r: wx_reqs.append(r.url) if "open-meteo" in r.url and "/v1/" in r.url else None)
+            tle_reqs = []
+            pg.on("request", lambda r: tle_reqs.append(r.url) if "celestrak" in r.url else None)
+            pg.route("**/celestrak.org/**", celestrak_route)
             pg.goto(args.url)
             pg.wait_for_function("document.querySelectorAll('#wx-charts .uplot').length > 10", timeout=15000)
 
@@ -53,7 +67,7 @@ with sync_playwright() as p:
             sw = pg.evaluate("document.documentElement.scrollWidth")
             check("no horizontal page scroll", sw <= w, f"scrollWidth {sw} / viewport {w}")
             clipped = pg.evaluate("""[...document.querySelectorAll(
-                '.section-head, .clock-time, .clock-sub, .day, .tile, .table-wrap, .chart-card, .map-wrap, .map-time, .map-info')]
+                '.section-head, .clock-time, .clock-sub, .day, .tile, .table-wrap, .chart-card, .map-wrap, .map-time, .map-info, .sat-grid, .sat-passes-card')]
                 .filter(e => e.offsetParent && e.scrollWidth > e.clientWidth + 1)
                 .map(e => e.className + ':' + e.textContent.trim().slice(0, 20))""")
             check("nothing overflows its box", not clipped, "; ".join(clipped)[:200])
@@ -90,6 +104,46 @@ with sync_playwright() as p:
             pg.touchscreen.tap(x, y) if opts.get("has_touch") else pg.mouse.move(x, y)
             pg.wait_for_timeout(250)
             check("sky cursor -> polar markers", pg.locator("#sky-polar circle.cursor-pos").count() > 0)
+
+            # Satellites: elements fetched and cached, sky view drawn, chart cursor drives it.
+            pg.wait_for_function("document.querySelector('#sat-el .uplot')", timeout=15000)
+            check("satellite elements cached", pg.evaluate(
+                "Object.keys(JSON.parse(localStorage.getItem('sats:tle:v2')).sats).length") >= 100)
+            check("satellite status", "CelesTrak" in pg.inner_text("#sat-status") and
+                  "error" not in (pg.get_attribute("#sat-status", "class") or ""), pg.inner_text("#sat-status"))
+            pg.locator("#sat-polar").scroll_into_view_if_needed()
+            lit = pg.evaluate("""(() => { const c = document.querySelector('#sat-polar');
+                const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+                let n = 0; for (let i = 0; i < d.length; i += 4) if (d[i] + d[i+1] + d[i+2] > 600) n++; return n; })()""")
+            check("sky view draws stars", lit > 100, f"{lit} bright pixels")
+            check("sky view readout", pg.locator("#sat-polar-info .pi-cell").count() >= 1)
+            pg.click('#sat-week-mode button[data-mode="all"]'); pg.wait_for_timeout(100)
+            wk = pg.locator("#sat-week tbody tr").count()
+            check("ISS week table", wk >= 20, f"{wk} passes in 7 days")
+            pg.click('#sat-week-mode button[data-mode="visible"]')
+            rows = pg.locator("#sat-passes tbody tr[data-p]").count()
+            check("pass list", rows >= 1, f"{rows} rows")
+            pass_mags = lambda: [float(t.replace("\u2212", "-")) for t in
+                                 pg.locator("#sat-passes tbody tr[data-p] td:last-child").all_inner_texts()]
+            mags = pass_mags()
+            check("passes sorted by brightness", mags == sorted(mags), str(mags))
+            n_bright = pg.inner_text("#sat-count")
+            pg.eval_on_selector("#sat-mag", "(e) => { e.value = '0'; e.dispatchEvent(new Event('input')); }")
+            mags0 = pass_mags()
+            check("magnitude cutoff trims passes", all(m <= 0 for m in mags0) and pg.inner_text("#sat-count") != n_bright,
+                  f"{n_bright} -> {pg.inner_text('#sat-count')}")
+            pg.eval_on_selector("#sat-mag", "(e) => { e.value = '4'; e.dispatchEvent(new Event('input')); }")
+            el = pg.locator("#sat-el .u-over"); el.scroll_into_view_if_needed(); b = el.bounding_box()
+            x, y = b["x"] + b["width"] * 0.6, b["y"] + 40
+            pg.touchscreen.tap(x, y) if opts.get("has_touch") else pg.mouse.move(x, y)
+            pg.wait_for_timeout(250)
+            t_cur = pg.inner_text("#sat-polar-info .pi-time")
+            check("satellite chart cursor -> sky view time", not t_cur.startswith("Now"), t_cur)
+            first = pg.locator("#sat-passes tbody tr[data-p]").first
+            first.click(); pg.wait_for_timeout(250)
+            zoomed = pg.evaluate("[...document.querySelectorAll('#sat-range button')].every(b => b.getAttribute('aria-pressed') === 'false')")
+            check("pass click zooms the chart", zoomed and "sel" in (first.get_attribute("class") or ""))
+            pg.click('#sat-range button[data-range="12h"]')
 
             # Precipitation map: storage permission asked once, then model data drawn.
             # MapLibre needs WebGL2, which headless Firefox lacks; there only check
@@ -207,12 +261,25 @@ with sync_playwright() as p:
 
             # Every section collapses (catches ID rules overriding the collapse rule).
             bad = []
-            for sec in ["clocks", "world", "sky", "weather", "precip", "links"]:
+            for sec in ["clocks", "world", "sky", "sats", "weather", "precip", "links"]:
                 tog = pg.locator(f'[data-section="{sec}"] .section-toggle')
                 tog.scroll_into_view_if_needed(); tog.click()
                 if pg.locator(f'[data-section="{sec}"] .section-body').is_visible(): bad.append(sec)
                 tog.click()
             check("all sections collapse", not bad, ", ".join(bad))
+
+            # Satellites: nothing is computed while the section is collapsed; expanding computes.
+            pg.add_init_script("""(() => { const pm = Worker.prototype.postMessage; window.__satJobs = 0;
+                Worker.prototype.postMessage = function (...a) { if (a[0] && a[0].sats) window.__satJobs++;
+                return pm.apply(this, a); }; })()""")
+            tog = pg.locator("#sat-h .section-toggle"); tog.scroll_into_view_if_needed(); tog.click()
+            pg.reload(); pg.wait_for_timeout(2500)
+            idle = pg.evaluate("[window.__satJobs, document.querySelectorAll('#sat-el .uplot').length]")
+            pg.locator("#sat-h .section-toggle").click()
+            pg.wait_for_function("document.querySelector('#sat-el .uplot')", timeout=15000)
+            woke = pg.evaluate("window.__satJobs")
+            check("satellite computation paused while collapsed", idle == [0, 0] and woke >= 1,
+                  f"collapsed: {idle[0]} jobs, {idle[1]} charts; expanded: {woke} jobs")
 
             # MT/UTC switch changes legend label and table times.
             pg.click('#sky-tz button[data-tz="UTC"]'); pg.wait_for_timeout(300)
@@ -252,6 +319,7 @@ with sync_playwright() as p:
             check("section order persists", order.index("links") < order.index("precip"), ",".join(order))
             check("theme override persists", pg.evaluate("document.documentElement.dataset.theme") in ("light", "dark"))
             check("weather served from cache on reload", not wx_reqs, f"{len(wx_reqs)} data requests")
+            check("satellite elements fetched once", len(tle_reqs) <= 2, "; ".join(tle_reqs)[:200])
             check("status shows model run", "run" in pg.inner_text("#wx-status"), pg.inner_text("#wx-status"))
             check("no JS errors", not errors, "; ".join(errors)[:200])
             ctx.close()

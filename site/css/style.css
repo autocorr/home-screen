@@ -16,6 +16,7 @@
   --series-1: #2a78d6; --series-2: #eb6834; --series-3: #1baf7a; --series-4: #e09800;
   --series-5: #e87ba4; --series-6: #008300; --series-7: #6250d6; --series-8: #e34948;
   --moon: #6f6a60;
+  --mag-bright: #8a4300; --mag-faint: #cfae7c;   /* satellite brightness ramp (one hue) */
 
   --good: #0ca30c; --warning: #fab219; --serious: #ec835a; --critical: #d03b3b;
 
@@ -32,6 +33,7 @@
     --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500;
     --series-5: #d55181; --series-6: #0ca30c; --series-7: #9085e9; --series-8: #e66767;
     --moon: #b5b3ab;
+    --mag-bright: #ffe08a; --mag-faint: #7a6334;
   }
 }
 :root[data-theme="dark"] {
@@ -42,6 +44,7 @@
   --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500;
   --series-5: #d55181; --series-6: #0ca30c; --series-7: #9085e9; --series-8: #e66767;
   --moon: #b5b3ab;
+  --mag-bright: #ffe08a; --mag-faint: #7a6334;
 }
 
 * { box-sizing: border-box; }
@@ -200,6 +203,54 @@ dialog::backdrop { background: rgba(0, 0, 0, .45); }
 #sky-polar .dim { opacity: .2; }
 #sky-polar .target, #sky-polar .cursor-pos { transition: opacity .12s; }
 
+/* ---- satellites ---- */
+.sat-grid { display: grid; gap: 6px 16px; grid-template-areas: "polar" "chart" "passes" "week"; }
+.sat-filter { display: flex; align-items: center; flex-wrap: wrap; gap: 2px 10px; font-size: 0.82rem; }
+.sat-filter label { font-weight: 600; white-space: nowrap; }
+.sat-filter output { display: inline-block; min-width: 2.6em; font-variant-numeric: tabular-nums; }
+.sat-slider { display: flex; align-items: center; gap: 6px; flex: 1 1 200px; max-width: 420px; }
+.sat-slider .unit { font-size: 0.72rem; }
+.sat-slider input { flex: 1; min-width: 0; height: 30px; accent-color: var(--accent); }
+.mag-ramp { display: inline-block; width: 36px; height: 8px; vertical-align: 0; border-radius: 2px;
+  background: linear-gradient(to right, var(--mag-bright), var(--mag-faint)); }
+.polar-info .pi-wide { grid-column: 1 / -1; white-space: normal; }
+#sat-polar-info { min-height: calc(4 * 1.35em); align-content: start; }
+.sat-week-card { grid-area: week; min-width: 0; display: grid; gap: 4px; }
+.sat-polar-card { grid-area: polar; min-width: 0; }
+.sat-el-card { grid-area: chart; min-width: 0; }
+.sat-passes-card { grid-area: passes; min-width: 0; display: grid; gap: 4px; align-content: start; }
+#sat-polar { width: 100%; max-width: 440px; aspect-ratio: 1; display: block; margin: 0 auto; touch-action: pan-y; }
+.sat-el-card figcaption.panel-sub { padding-bottom: 2px; }
+.sat-el-card .seg { font-weight: 400; }
+.sub-h { font-size: 0.8rem; font-weight: 600; }
+#sat-passes { border-collapse: collapse; width: 100%; font-size: 0.82rem; font-variant-numeric: tabular-nums; }
+#sat-passes th, #sat-passes td { padding: 3px 6px; text-align: right; white-space: nowrap; border-bottom: 1px solid var(--rule); }
+#sat-passes th:first-child, #sat-passes td:first-child { text-align: left; padding-left: 0; }
+#sat-passes th:last-child, #sat-passes td:last-child { padding-right: 0; }
+#sat-passes thead th { color: var(--text-muted); font-weight: 500; font-size: 0.72rem; }
+#sat-passes tbody th { font-weight: 600; }
+#sat-passes tbody tr[data-p] { cursor: pointer; }
+#sat-passes tbody tr[data-p]:hover { background: var(--grid); }
+#sat-passes tbody tr:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+#sat-passes tr.unseen { color: var(--text-muted); }
+#sat-passes tr.sel { background: var(--grid); box-shadow: inset 3px 0 0 var(--accent); }
+#sat-passes tr.live th::after { content: " ●"; color: var(--now); font-size: 0.7em; vertical-align: 1px; }
+#sat-passes tr.empty td { text-align: left; color: var(--text-muted); }
+#sat-week { border-collapse: collapse; width: 100%; font-size: 0.82rem; font-variant-numeric: tabular-nums; }
+#sat-week th, #sat-week td { padding: 3px 6px; text-align: right; white-space: nowrap; border-bottom: 1px solid var(--rule); }
+#sat-week th:first-child, #sat-week td:first-child { text-align: left; padding-left: 0; }
+#sat-week th:last-child, #sat-week td:last-child { padding-right: 0; }
+#sat-week thead th { color: var(--text-muted); font-weight: 500; font-size: 0.72rem; }
+#sat-week tbody th { font-weight: 600; }
+#sat-week tr.new-day:not(:first-child) th, #sat-week tr.new-day:not(:first-child) td { border-top: 1px solid var(--axis); }
+#sat-week tr.unseen td { color: var(--text-muted); }
+#sat-week tr.empty td { text-align: left; color: var(--text-muted); }
+@media (max-width: 559px) {
+  /* Phone: drop visible minutes (pass list) and time of peak (week table). */
+  #sat-passes .wide-only, #sat-week .wide-only { display: none; }
+  #sat-passes th, #sat-passes td, #sat-week th, #sat-week td { padding: 3px 4px; }
+}
+
 /* ---- weather ---- */
 .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(108px, 1fr)); gap: 6px 12px; }
 .tile { min-width: 0; }
@@ -304,6 +355,7 @@ dialog::backdrop { background: rgba(0, 0, 0, .45); }
   main { padding: 10px 16px 24px; }
   .chart-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .sky-grid { grid-template-columns: minmax(280px, 2fr) 3fr; align-items: start; }
+  .sat-grid { grid-template-columns: minmax(280px, 2fr) 3fr; grid-template-areas: "polar passes" "chart chart" "week week"; align-items: start; }
 }
 @media (min-width: 1200px) {
   .chart-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }

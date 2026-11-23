@@ -27,6 +27,41 @@ export const VLA_EL_LIMIT = 8;
 // Sky track window relative to now (hours) and sampling step (minutes).
 export const SKY_WINDOW = { before: 12, after: 12, stepMin: 5 };
 
+// Satellites section (site/js/sats.js): passes over Socorro of CelesTrak's
+// "visual" group (~150 of the brightest satellites), from orbital elements
+// (TLEs) propagated with SGP4 in the browser. Satellites are keyed by NORAD
+// catalog number.
+//
+// Brightness: each satellite has a standard magnitude (at 1000 km range, 90°
+// phase angle). Most come from Mike McCants' list (js/data/satmags.js, built by
+// scripts/build_satmags.py); `stdMag` below takes precedence over it and fills
+// in objects it lacks, and anything else gets `defaultStdMag`. These are rough: flat antenna arrays
+// (BlueBird, BlueWalker) can differ from the estimate by a magnitude or more.
+export const SATS = {
+  observer: { ...SOCORRO, height: 1400 },   // m
+  group: 'visual',     // CelesTrak group fetched in one request
+  extra: [53807],      // also fetched, by number: not in the group
+  names: {             // display names; others use CelesTrak's name
+    25544: 'ISS', 48274: 'Tiangong', 20580: 'Hubble', 53807: 'BlueWalker 3', 27386: 'Envisat',
+  },
+  stdMag: {            // used before McCants' value; estimates for objects his list lacks
+    25544: -1.8,  // ISS: McCants' −2.5 predicts about −5 overhead, against an observed −3.8 to −4
+    48274: -1.0,                                                // Tiangong
+    53807: 1.9,                                                 // BlueWalker 3, 64 m² array
+    61045: 1.9, 61046: 1.9, 61047: 1.9, 61048: 1.9, 61049: 1.9, // BlueBird 1–5, 64 m²
+    67232: 1.0, 69589: 1.0, 69590: 1.0, 69591: 1.0,             // BlueBird Block 2, ~223 m²
+  },
+  defaultStdMag: 4.0,
+  // Magnitude cutoff slider: only passes at least this bright are shown.
+  magCut: { min: -2, max: 5, step: 0.5, default: 2.5 },
+  week: { id: 25544, days: 7 },  // satellite and span (days) of the week-ahead pass table
+  refreshH: 6,         // refetch elements older than this
+  retryMin: 30,        // after a failed fetch, wait this long before trying again
+  window: { before: 1, after: 48, stepSec: 15 },  // hours around now; sampling step
+  minPassEl: 10,       // passes lower than this (deg) are left out
+  darkSunEl: -6,       // the sky counts as dark (satellites visible) when the Sun is below this
+};
+
 // Weather cache: data is refetched when Open-Meteo publishes a newer model run.
 // This age (minutes) is only the fallback when the model metadata can't be read.
 export const WX_MAX_AGE_MIN = 30;
@@ -90,6 +125,7 @@ export const SECTIONS = [
   { id: 'clocks', label: 'Clocks (MT / UTC / LST)' },
   { id: 'world', label: 'World time' },
   { id: 'sky', label: 'Sky at the VLA' },
+  { id: 'sats', label: 'Satellites' },
   { id: 'weather', label: 'Weather' },
   { id: 'precip', label: 'Precipitation & radar map' },
   { id: 'links', label: 'Links' },

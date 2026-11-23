@@ -1,6 +1,7 @@
 import { initSettings } from './settings.js';
 import { initClocks } from './clocks.js';
 import { initSky, rerender as rerenderSky } from './sky.js';
+import { initSats, rerender as rerenderSats } from './sats.js';
 import { initWeather, rerender as rerenderWeather } from './weather.js';
 import { initLinks } from './links.js';
 import { initPrecip, initPrecipSettings, rerender as rerenderPrecip } from './precip.js';
@@ -14,11 +15,12 @@ const safe = (id, fn) => {
 };
 
 // Chart colours are read from CSS variables at creation; rebuild on theme change.
-const rerenderCharts = () => { rerenderSky(); rerenderWeather($('weather')); rerenderPrecip(); };
+const rerenderCharts = () => { rerenderSky(); rerenderSats(); rerenderWeather($('weather')); rerenderPrecip(); };
 
 safe('settings', () => initSettings(rerenderCharts));
 safe('clocks', () => initClocks($('clocks'), $('world')));
 safe('sky', () => initSky($('sky')));
+safe('sats', () => initSats($('sats')));
 safe('weather', () => initWeather($('weather')));
 safe('precip', () => { initPrecip($('precip')); initPrecipSettings($('settings')); });
 safe('links', () => initLinks($('links')));

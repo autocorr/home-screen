@@ -4,12 +4,13 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Home Screen</title>
-  <meta name="description" content="Clocks, VLA sky positions and Socorro weather">
+  <meta name="description" content="Clocks, VLA sky positions, satellite passes and Socorro weather">
   <meta name="theme-color" content="#f5f0e6" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📡</text></svg>">
   <link rel="preconnect" href="https://api.open-meteo.com" crossorigin>
   <link rel="preconnect" href="https://air-quality-api.open-meteo.com" crossorigin>
+  <link rel="preconnect" href="https://celestrak.org" crossorigin>
   <script>
     // Apply a saved theme override before first paint (avoids a flash).
     try { const t = JSON.parse(localStorage.getItem('settings:v1'))?.theme;
@@ -20,6 +21,7 @@
   <link rel="stylesheet" href="css/style.css">
   <script src="vendor/uPlot.iife.min.js" defer></script>
   <script src="vendor/astronomy.browser.min.js" defer></script>
+  <script src="vendor/satellite.js/satellite.min.js" defer></script>
   <script type="module" src="js/main.js"></script>
 </head>
 <body>
@@ -81,6 +83,67 @@
           <figure class="chart-card"><figcaption>Azimuth <span class="unit">(while above horizon)</span></figcaption><div class="chart" id="sky-az"></div></figure>
         </div>
       </div>
+    </div>
+  </section>
+
+  <section id="sats" data-section="sats" class="panel" aria-labelledby="sat-h">
+    <header class="section-head">
+      <h2 id="sat-h"><button class="section-toggle" aria-expanded="true" aria-controls="sat-body">Satellites · Socorro</button></h2>
+      <div class="seg head-controls" id="sat-tz" role="group" aria-label="Time axis">
+        <button data-tz="America/Denver">MT</button><button data-tz="UTC">UTC</button>
+      </div>
+    </header>
+    <div class="section-body" id="sat-body">
+      <div class="sat-filter">
+        <label for="sat-mag" title="Show only visible passes whose estimated peak brightness is this bright or brighter (lower magnitude = brighter)">Brighter than mag <output id="sat-mag-out" for="sat-mag"></output></label>
+        <span class="sat-slider"><span class="unit">bright</span><input type="range" id="sat-mag" aria-label="Magnitude cutoff"><span class="unit">faint</span></span>
+        <span id="sat-count" class="note"></span>
+      </div>
+      <div class="sat-grid">
+        <figure class="chart-card sat-polar-card">
+          <figcaption title="As seen lying on your back with your head to the north. Hover or drag the elevation chart to move through time.">Sky view <span class="unit">(N up, E left, as seen looking up · stars to mag 4)</span></figcaption>
+          <canvas id="sat-polar" role="img" aria-label="Sky view from Socorro with stars, constellations, planets and satellite passes"></canvas>
+          <p id="sat-polar-info" class="polar-info"></p>
+        </figure>
+        <figure class="chart-card sat-el-card">
+          <figcaption class="panel-sub">
+            <span title="Each visible pass at or brighter than the cutoff. Thick where visible: sunlit with the Sun at least 6° below the horizon. Colour shows the pass's peak brightness. Shading marks night.">Elevation <span class="unit">(thick = visible · <span class="mag-ramp" aria-hidden="true"></span> brighter → fainter · shaded = night)</span></span>
+            <span class="seg" id="sat-range" role="group" aria-label="Time range">
+              <button data-range="3h">3 h</button><button data-range="12h">12 h</button><button data-range="24h">24 h</button><button data-range="48h">48 h</button>
+            </span>
+          </figcaption>
+          <div class="chart" id="sat-el"></div>
+        </figure>
+        <div class="sat-passes-card">
+          <div class="panel-sub">
+            <h3 class="sub-h">Visible passes, 48 h <span class="unit">(tap to zoom)</span></h3>
+            <div class="seg" id="sat-sort" role="group" aria-label="Sort passes by">
+              <button data-sort="mag">Brightest</button><button data-sort="time">Soonest</button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table id="sat-passes">
+              <thead><tr><th>Satellite</th><th class="col-rise">Rises</th><th title="Highest elevation">Max</th><th>Sets</th><th class="wide-only" title="Time visible: sunlit, with the Sun 6° or more below the horizon">Visible</th><th title="Estimated peak brightness while visible (magnitude; lower is brighter)">Mag</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="sat-week-card">
+          <div class="panel-sub">
+            <h3 class="sub-h" id="sat-week-h">ISS passes, next 7 days <span class="unit" title="Orbit boosts and changes in drag make times further ahead less certain, by up to a minute or so after several days. The elements are refreshed every few hours.">(above 10°)</span></h3>
+            <div class="seg" id="sat-week-mode" role="group" aria-label="Which ISS passes">
+              <button data-mode="visible">Visible</button><button data-mode="all">All</button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table id="sat-week">
+              <thead><tr><th class="col-day">Date</th><th>Rises</th><th title="Highest elevation and when">Max</th><th>Sets</th><th title="When it is sunlit with the Sun 6° or more below the horizon">Visible</th><th title="Estimated peak brightness while visible (magnitude; lower is brighter)">Mag</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      <p id="sat-status" class="note"></p>
     </div>
   </section>
 
@@ -146,7 +209,7 @@
 
   <footer class="site-footer">
     <button type="button" id="open-settings" class="btn">⚙ Settings</button>
-    <p class="note">Weather &amp; air quality: <a href="https://open-meteo.com/">Open-Meteo</a> (CC BY 4.0). Positions: <a href="https://github.com/cosinekitty/astronomy">Astronomy Engine</a>. Charts: <a href="https://github.com/leeoniya/uPlot">uPlot</a>. Maps: <a href="https://maplibre.org/">MapLibre</a>, <a href="https://github.com/open-meteo/weather-map-layer">Open-Meteo weather-map-layer</a>, map data © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors.</p>
+    <p class="note">Weather &amp; air quality: <a href="https://open-meteo.com/">Open-Meteo</a> (CC BY 4.0). Positions: <a href="https://github.com/cosinekitty/astronomy">Astronomy Engine</a>. Satellites: orbital elements from <a href="https://celestrak.org/">CelesTrak</a>, magnitudes from <a href="https://www.mmccants.org/">Mike McCants</a>, propagated with <a href="https://github.com/shashwatak/satellite-js">satellite.js</a>. Stars &amp; constellations: <a href="https://github.com/ofrohn/d3-celestial">d3-celestial</a> (Hipparcos). Charts: <a href="https://github.com/leeoniya/uPlot">uPlot</a>. Maps: <a href="https://maplibre.org/">MapLibre</a>, <a href="https://github.com/open-meteo/weather-map-layer">Open-Meteo weather-map-layer</a>, map data © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors.</p>
   </footer>
 </main>
 
