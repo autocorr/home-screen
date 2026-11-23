@@ -30,6 +30,8 @@ Sections can be collapsed by tapping their heading, and reordered or hidden with
 
   Both have a time slider with playback and one-step ‹ › buttons, and you can tap the
   map to read the value at a point.
+- **Calculator**: an IPython-style text REPL with Python syntax, numpy-like arrays and
+  units and constants, e.g. `60 mi / h -> m / s`. See below.
 - **Links**: placeholders. Edit `LINKS` in `site/js/config.js`.
 
 The theme follows the OS light/dark preference by default; Settings can override it.
@@ -51,6 +53,10 @@ site/
   js/weather.js       Open-Meteo fetch + localStorage cache + charts
   js/clocks.js        MT/UTC/LST and world clocks
   js/links.js         links section
+  js/calc.js          calculator section: transcript, keyboard, history (loads js/calc/ on first use)
+  js/calc/            calculator engine, no DOM: parse.js (Python subset + ->), values.js (types,
+                      display), ops.js (operators, broadcasting, indexing, conversion), units.js
+                      (units and constants), builtins.js (math, array helpers), repl.js (eval, help, magics)
   js/settings.js      settings dialog (theme, section order/visibility)
   js/charts.js        shared uPlot helpers (theme, touch cursor, now line, night shading)
   js/precip.js        precipitation & radar map section (controls, timeline, storage prompt)
@@ -319,6 +325,69 @@ about where data comes from. A data layer is a plain object with `id`, `frames()
 their frame times), so observed radar for past times and the forecast for future times
 can sit on the same slider. `site/js/map/openmeteo.js` is the reference implementation.
 
+## Calculator
+
+A text REPL that behaves like IPython with `from math import *` and numpy arrays already
+imported, plus units written the way physicists write them. There are no buttons.
+
+- **Python syntax**: `+ - * / // % **`, comparisons (chained), `and/or/not`, `x if c else y`,
+  `lambda`, tuples and unpacking, `x = ...`, `x += ...`, `del x`, `;` between statements
+  (a trailing `;` hides the result). Integers are exact (`2**100`, `factorial(50)`), `/` gives
+  a float, and `^` is bitwise xor, as in Python. No loops, comprehensions, `def` or imports.
+- **Arrays**: `[1, 2, 3]` is an array, not a list. Arithmetic and every `math` function work
+  elementwise and broadcast like numpy (`[1, 2, 3] + [[10], [20]]`). Indexing `a[0]`, `a[1:]`,
+  `a[:, 0]`, `a[a > 1]`, item assignment, `@`, `.T`, `.shape`, and methods/functions such as
+  `sum mean median std min max argmax cumsum diff sort where dot cross norm reshape arange
+  linspace zeros interp`.
+- **Units go right after a number** (or after `)`, `]`, a call or an index):
+  - Examples: `3 km`, `9.8 m / s**2`, `1 kg m / s^2`, `2 m3 / (kg s2)`, `[1, 2] km`, `(x) m`,
+    `sqrt(2) m`, `30°`, `100 °C`.
+  - A unit runs over unit names joined by spaces, `*` and `/`, with powers written `**`, `^`
+    or astropy's `s2`, and `/ (...)` groups. So astropy's output (`m3 / (kg s2)`) can be
+    typed back in.
+  - Inside a unit, names are always units. Everywhere else they are ordinary names, so
+    `m = [[1, 2], [3, 4]]` and `3 m` can both be used, and `min(...)` is still the builtin
+    while `5 min` is minutes.
+  - If a name after `*` or `/` in a unit is also one of your variables, the unit wins and
+    a note says so. Write `(2 kg) * g` to use the variable.
+  - A unit after a bare variable (`x m`) is a syntax error; write `(x) m`.
+- **Unit names, display and rules follow astropy.units**:
+  - Names: `GHz`, `Jy`, `pc`, `Msun`, `deg_C`, ... with SI prefixes, plus binary ones for bytes.
+  - Display: `km / s`, `m3 / (kg s2)`.
+  - Units stay as written until converted, and `+` converts to the left operand's unit.
+    Incompatible units raise `UnitConversionError`.
+  - Imperial units (`mi`, `lb`, `deg_F`, `psi`, ...) are included. `%units [text]` lists them.
+- **Constants**: `c.c`, `c.G`, `c.M_sun`, ... with astropy 8's values (CODATA 2022, IAU 2015).
+  `c.G?` shows the uncertainty and reference; `%consts` lists them. `e` stays Euler's number;
+  the electron charge is `c.e`.
+- **Conversion**: `expr -> unit` (or `expr to unit`) converts everything to its left, so
+  neither side needs parentheses: `c.c * 1 yr -> lyr`, `60 mi / h -> m / s`. It binds more
+  loosely than anything else, so `y = x -> km` stores the converted value. Unlike astropy's
+  `.to()`, it applies the spectral (wavelength / frequency / energy / wavenumber) and
+  temperature equivalencies by itself: `21 cm -> GHz`, `100 °C -> °F`. Other targets:
+  `-> 1/s`, `-> si`, `-> cgs`, `-> hms`, `-> dms`, or a quantity (`1 R_earth -> c.R_sun`).
+  `x.si`, `x.value` and `x.unit` also work.
+- **Help**: `?` for an overview; `name?`, `?name` or `help(name)` for a function's signature
+  and docstring, a unit (`km?`), a constant (`c.G?`) or a variable. `_`, `__`, `_N` are earlier
+  results. Magics (the `%` is optional): `%who`, `%whos`, `%reset`, `%precision [n]`,
+  `%history`, `%clear`, `%units`, `%consts`, `%lsmagic`.
+- **Keys**: Enter runs (or adds a line inside an unclosed bracket), Shift+Enter adds a line,
+  Up/Down walk the history (filtered by what is typed before the cursor), Tab completes
+  (units after a number or `->`, `c.` constants, other names elsewhere), Esc clears, Ctrl+L
+  clears the screen.
+- **LaTeX symbols**: as in IPython, `\epsilon<Tab>` becomes `ϵ`, `\alpha<Tab>` `α`, and a
+  partial name such as `\var<Tab>` lists the matches (`site/js/calc/latex.js`).
+  - Greek letters and `ħ`, `ℓ` work as variable names. Names are NFKC-normalised as in
+    Python, so `ϵ` and `ε`, and `x₁` and `x1`, are the same variable.
+  - These symbols are read as operators: `× · ÷` as `* /`, `≤ ≥ ≠` as `<= >= !=`, `→` as `->`,
+    `√x` as `sqrt(x)`, `∞` as `inf`, superscripts as powers (`m²`, `10⁻³`), `°` as degrees,
+    `µm`/`μm` as micrometres. `π` and `τ` are `pi` and `tau`.
+
+The input history (last 500 entries) is kept in localStorage (`calc:history:v1`). Variables
+and output last for the page's lifetime, as in an IPython session. The engine (~165 kB,
+~45 kB gzipped) is loaded when the input is first focused. `node tests/calc_check.mjs`
+checks it against values from Python and astropy.
+
 ## Testing in browsers
 
 **Every network service is mocked in the tests.** The test suite must never contact a real
@@ -342,6 +411,7 @@ uv run --with playwright python -m playwright install firefox chromium   # once
 uv run tests/browser_check.py                     # Playwright Firefox (Gecko): phone + desktop, light + dark
 uv run tests/browser_check.py --engine chromium   # same checks in Chromium
 uv run tests/firefox_selenium_check.py            # your installed Firefox via geckodriver
+node tests/calc_check.mjs                         # calculator engine (no browser)
 node tests/tle_policy_check.mjs                   # CelesTrak usage-policy handling (no network)
 ```
 
@@ -352,7 +422,8 @@ the magnitude cutoff, panning the chart, showing a pass, the ISS week table, no 
 persisting, theme, the weather cache being reused on reload, the precipitation map
 (storage prompt, model run loaded, value at Socorro, timeline), the radar view (scans and
 RRFS runs loaded, starting at the latest scan, dBZ readout, stepping into the forecast,
-switching back), and no JS errors.
+switching back), the calculator (unit conversion, continuation lines, errors, history, Tab
+completion), and no JS errors.
 
 Limits:
 - Firefox for Android can't be automated here. The Playwright Firefox run at 393 px

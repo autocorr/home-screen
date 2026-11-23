@@ -355,6 +355,43 @@ dialog::backdrop { background: rgba(0, 0, 0, .45); }
   :root:not([data-theme="light"]) .maplibregl-ctrl button .maplibregl-ctrl-icon { filter: invert(1); }
 }
 
+/* ---- calculator (IPython-style REPL) ---- */
+.calc-term {
+  font: 0.85rem/1.4 var(--mono); border: 1px solid var(--rule); padding: 6px 8px;
+  max-height: min(62vh, 540px); min-height: 7em; overflow-y: auto; overscroll-behavior: contain;
+  cursor: text; background: var(--page);
+}
+.calc-term:focus-within { border-color: var(--text-muted); }
+.calc-log { display: grid; }
+.calc-cell { display: grid; padding-bottom: 0.7em; }
+.calc-row { display: grid; grid-template-columns: max-content minmax(0, 1fr); column-gap: 1ch; min-width: 0; }
+.calc-prompt { white-space: pre; font-weight: 600; user-select: none; -webkit-user-select: none; }
+.calc-in .calc-prompt, .calc-input-row .calc-prompt { color: var(--series-6); }
+.calc-out .calc-prompt { color: var(--critical); }
+.calc-body { margin: 0; font: inherit; white-space: pre-wrap; overflow-wrap: anywhere; min-width: 0; }
+/* Results keep their columns (arrays) and scroll sideways rather than wrap. */
+.calc-out .calc-body { white-space: pre; overflow-x: auto; overflow-wrap: normal; }
+.calc-full { grid-column: 1 / -1; }
+.calc-text .calc-body { color: var(--text-secondary); }
+.calc-err .calc-body { color: var(--critical); }
+.calc-banner { margin: 0 0 0.7em; color: var(--text-muted); font: inherit; }
+.calc-input {
+  font: inherit; color: var(--text); background: transparent; border: 0; padding: 0; margin: 0;
+  width: 100%; min-width: 0; resize: none; overflow: hidden; outline: none; caret-color: var(--accent);
+  display: block; line-height: inherit;
+}
+/* iOS zooms into inputs under 16px. */
+@media (pointer: coarse) { .calc-input { font-size: 16px; } }
+.calc-complete { display: flex; flex-wrap: wrap; gap: 2px 4px; padding-top: 4px; }
+.calc-complete[hidden] { display: none; }
+.calc-cand {
+  font: inherit; font-size: 0.8rem; color: var(--text-secondary); background: transparent;
+  border: 1px solid var(--rule); border-radius: 3px; padding: 1px 6px; cursor: pointer;
+}
+.calc-cand[aria-selected="true"] { background: var(--text); color: var(--page); border-color: var(--text); }
+.calc-more { font-size: 0.8rem; color: var(--text-muted); align-self: center; }
+#calc-hint kbd { font: inherit; }
+
 @media (min-width: 760px) {
   main { padding: 10px 16px 24px; }
   .chart-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
