@@ -43,6 +43,10 @@ for label, (w, h), dark in [("phone-ish", (393, 851), False), ("desktop", (1280,
     print(f"\n[{label} {w}px, {'dark' if dark else 'light'}] Firefox {drv.capabilities['browserVersion']}")
     if args.headed:
         drv.set_window_size(w, h)
+    # This test doesn't cover satellites: record a just-made attempt so the page doesn't
+    # download from CelesTrak (whose usage policy asks for one download per 2 h update).
+    drv.get(args.url.rstrip("/") + "/css/style.css")
+    drv.execute_script("localStorage.setItem('sats:gp:v3', JSON.stringify({sats: {}, tried: Date.now()}))")
     # Window size includes browser chrome; read the real viewport width.
     drv.get(args.url)
     WebDriverWait(drv, 15).until(lambda d: d.execute_script(

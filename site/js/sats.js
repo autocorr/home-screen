@@ -12,7 +12,7 @@ import { SATS, TZ } from './config.js';
 import { makeChart, cssVar, fmtTime } from './charts.js';
 import { STARS, STAR_NAMES, LINES, LABELS } from './data/starmap.js';
 import { STD_MAG, STD_MAG_DATE } from './data/satmags.js';
-import { cachedTLE, tleNeedsRefresh, refreshTLE, tleEpoch } from './tle.js';
+import { cachedTLE, tleNeedsRefresh, refreshTLE, clearTLEHalt, ommEpoch } from './tle.js';
 
 const D2R = Math.PI / 180, R2D = 180 / Math.PI;
 const RE = 6378.137;  // km
@@ -214,7 +214,7 @@ function useTLE(c) {
       : STD_MAG[id] != null ? [STD_MAG[id], `McCants ${STD_MAG_DATE}`] : [SATS.defaultStdMag, 'unknown; assumed'];
     sats.set(id, {
       id, ctName: e.name, name: SATS.names[id] ?? (bb ? `BlueBird ${bb[1]}` : e.name),
-      stdMag, stdSrc, rec: S.twoline2satrec(e.l1, e.l2), epoch: tleEpoch(e.l1), l1: e.l1, l2: e.l2,
+      stdMag, stdSrc, rec: S.json2satrec(e.omm), epoch: ommEpoch(e.omm), omm: e.omm,
     });
   }
   recompute();
@@ -245,7 +245,7 @@ function recompute() {
     sun: { t0, step: sunStep, el: sunEl, v: sunV }, step,
     obs: SATS.observer, darkSunEl: SATS.darkSunEl, minPassEl: SATS.minPassEl,
   };
-  const list = [...sats.values()].map(({ id, l1, l2, stdMag }) => ({ id, l1, l2, stdMag }));
+  const list = [...sats.values()].map(({ id, omm, stdMag }) => ({ id, omm, stdMag }));
   pending = { grid: ++seq, gridT: { t, sunEl: gridSunEl }, week: ++seq };
   computing = true;
   if (!grid) setStatus(`Computing passes for ${sats.size} satellites…`);
@@ -274,16 +274,37 @@ function onWorker(e) {
 }
 
 async function maybeRefresh() {
-  if (!tleNeedsRefresh()) return;
+  if (!tleNeedsRefresh()) {
+    // Pick up a stop (or a failure) recorded by another tab.
+    const c = cachedTLE();
+    if (c && (c.halted || !tle?.fetched)) { tle = c; setStatus(); }
+    return;
+  }
   const c = await refreshTLE();
   if (c.fetched && c.fetched !== tle?.fetched) useTLE(c);
   else { tle = c; setStatus(); }
+}
+
+/** CelesTrak refused a request: downloads stay stopped until someone presses Retry. */
+function haltNotice(el) {
+  const h = tle.halted;
+  el.classList.add('error');
+  el.textContent = `CelesTrak refused the last request (${h.message}). Automatic downloads are stopped, as its usage ` +
+    'policy asks, until you check the cause and retry. ';
+  const b = document.createElement('button');
+  b.type = 'button'; b.className = 'btn'; b.textContent = 'Retry';
+  b.title = 'Clear the stop and try one download now';
+  b.addEventListener('click', () => { clearTLEHalt(); tle = cachedTLE(); setStatus('Retrying…'); maybeRefresh(); });
+  const a = document.createElement('a');
+  a.href = 'https://celestrak.org/usage-policy.php'; a.textContent = 'usage policy'; a.rel = 'noopener';
+  el.append(b, ' · ', a);
 }
 
 function setStatus(msg, isError = false) {
   const el = root.querySelector('#sat-status');
   if (msg) { el.textContent = msg; el.classList.toggle('error', isError); return; }
   if (!tle?.fetched) {
+    if (tle?.halted) { haltNotice(el); return; }
     el.textContent = `Couldn't load orbital elements from CelesTrak${tle?.error ? `: ${tle.error}` : ''}. Retrying later.`;
     el.classList.add('error');
     return;
@@ -302,7 +323,8 @@ function setStatus(msg, isError = false) {
   el.textContent = `${all.length} satellites (CelesTrak “${SATS.group}” group), elements fetched ${ago(tle.fetched)} ago, ` +
     `median epoch ${median.toFixed(1)} d old · brightness from McCants' magnitudes, ${est} estimated` +
     (stale ? ` · ${weekSat.name} elements are ${Math.round((Date.now() - weekSat.epoch) / 86400e3)} d old` : '') +
-    (tle.error ? ` · last refresh failed: ${tle.error}` : '') + (computing ? ' · updating…' : '');
+    (tle.error && !tle.halted ? ` · last refresh failed: ${tle.error}` : '') + (computing ? ' · updating…' : '');
+  if (tle.halted) { el.append(' · '); const s = document.createElement('span'); el.append(s); haltNotice(s); el.classList.add('error'); }
   el.title = `Elements: celestrak.org GP data. Standard magnitudes: Mike McCants' quicksat list (${STD_MAG_DATE}); ` +
     `${est} objects not in it use estimates (config.js). Oldest epoch ${ages.at(-1)?.toFixed(1)} d.`;
 }

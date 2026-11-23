@@ -1,7 +1,7 @@
 // Pass finder for the satellites section, run in a Web Worker so ~150
 // satellites x 2 days of SGP4 don't block the page.
 //
-// Request:  { seq, sats: [{id, l1, l2, stdMag}], t0, step, n, sun, obs,
+// Request:  { seq, sats: [{id, omm, stdMag}], t0, step, n, sun, obs,
 //             darkSunEl, minPassEl, arrays }
 //   Times are t0 + i*step (unix s), i < n. `sun` = { t0, step, el: Float32Array,
 //   v: Float64Array (unit vectors, equator of date) } sampled coarsely; it is
@@ -21,9 +21,9 @@ const NEAR = -8;      // a coarse sample this high (deg) may belong to a pass
 const recs = new Map();
 
 function satrec(s) {
-  const key = s.l1 + s.l2;
+  const key = `${s.omm.EPOCH}|${s.omm.MEAN_ANOMALY}`;
   let r = recs.get(s.id);
-  if (!r || r.key !== key) { r = { key, rec: S.twoline2satrec(s.l1, s.l2) }; recs.set(s.id, r); }
+  if (!r || r.key !== key) { r = { key, rec: S.json2satrec(s.omm) }; recs.set(s.id, r); }
   return r.rec;
 }
 

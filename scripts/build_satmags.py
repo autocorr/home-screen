@@ -9,6 +9,8 @@ falls back to SATS.stdMag in config.js, then SATS.defaultStdMag.
 
 Run:  python3 scripts/build_satmags.py [extra catalog numbers...]
 """
+import csv
+import gzip
 import io
 import sys
 import urllib.request
@@ -16,21 +18,25 @@ import zipfile
 from pathlib import Path
 
 QSMAG = "https://www.mmccants.org/programs/qsmag.zip"
-GROUP = "https://celestrak.org/NORAD/elements/gp.php?GROUP=visual&FORMAT=tle"
+# CSV, not the legacy TLE format (see https://celestrak.org/usage-policy.php). CelesTrak GP
+# data changes every 2 h; don't rerun this more often than that.
+GROUP = "https://celestrak.org/NORAD/elements/gp.php?GROUP=visual&FORMAT=csv"
 OUT = Path(__file__).resolve().parent.parent / "site/js/data/satmags.js"
 EXTRA = [53807]  # SATS.extra in config.js: not in the visual group
 
 
 def get(url):
-    req = urllib.request.Request(url, headers={"User-Agent": "home-screen build script"})
+    # urlopen raises on any non-200 answer, so the script stops at the first refusal.
+    req = urllib.request.Request(url, headers={"User-Agent": "home-screen build script", "Accept-Encoding": "gzip"})
     with urllib.request.urlopen(req) as r:
-        return r.read()
+        data = r.read()
+        return gzip.decompress(data) if r.headers.get("Content-Encoding") == "gzip" else data
 
 
 def main():
     extra = [int(x) for x in sys.argv[1:]] or EXTRA
     group = get(GROUP).decode()
-    ids = sorted({int(l[2:7]) for l in group.splitlines() if l.startswith("1 ")} | set(extra))
+    ids = sorted({int(row["NORAD_CAT_ID"]) for row in csv.DictReader(io.StringIO(group))} | set(extra))
 
     z = zipfile.ZipFile(io.BytesIO(get(QSMAG)))
     info = z.infolist()[0]
