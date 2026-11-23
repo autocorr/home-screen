@@ -48,6 +48,22 @@ export const PRECIP_MAP = {
     { id: 'ncep_rrfs_conus', label: 'RRFS', title: 'NOAA RRFS, 3 km, 84 h' },
     { id: 'ncep_nbm_conus', label: 'NBM', title: 'NOAA National Blend of Models, 2.5 km, 11 days' },
   ],
+  // What the map shows; first entry is the default. 'precip' uses `models` above.
+  quantities: [
+    { id: 'precip', label: 'Precip', title: 'Forecast precipitation rate' },
+    { id: 'refl', label: 'Radar', title: 'Radar reflectivity: observed NEXRAD mosaic, then the RRFS forecast' },
+  ],
+  // Radar reflectivity: IEM's observed NEXRAD mosaic for the past `historyH`
+  // hours, then each forecast domain in turn (RRFS `radar_reflectivity`, the
+  // simulated composite reflectivity). A later domain only fills times after
+  // the one before it ends.
+  radar: {
+    historyH: 2,
+    forecasts: [
+      { id: 'ncep_rrfs_conus_15min', label: 'RRFS 15 min', runEveryH: 1 },  // 18 h ahead
+      { id: 'ncep_rrfs_conus', label: 'RRFS hourly', runEveryH: 6 },        // 84 h ahead
+    ],
+  },
   markers: [
     { label: '', lngLat: [SOCORRO.lon, SOCORRO.lat] },  // basemaps already label Socorro
     { label: 'VLA', lngLat: [VLA.lon, VLA.lat] },
@@ -75,6 +91,6 @@ export const SECTIONS = [
   { id: 'world', label: 'World time' },
   { id: 'sky', label: 'Sky at the VLA' },
   { id: 'weather', label: 'Weather' },
-  { id: 'precip', label: 'Precipitation map' },
+  { id: 'precip', label: 'Precipitation & radar map' },
   { id: 'links', label: 'Links' },
 ];

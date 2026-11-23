@@ -31,9 +31,19 @@ export function turboBreakpointScale(unit, breakpoints, { tMin = 0.12, tMax = 1,
   return { type: 'breakpoint', unit, breakpoints: [...breakpoints], colors };
 }
 
-/** Colour scale overrides by name, keyed by variable. Empty = the library's own palettes. */
+/**
+ * Radar reflectivity (dBZ) in 5 dBZ steps. The library has no palette for it,
+ * so this one is always used, for the forecast (RRFS `radar_reflectivity`) and
+ * the observed radar alike. Below 5 dBZ is transparent (clear-air returns).
+ */
+export const REFLECTIVITY_SCALE = turboBreakpointScale('dBZ', Array.from({ length: 15 }, (_, i) => i * 5));
+
+/** Colour scale overrides, keyed by variable. `name` 'turbo' also recolours precipitation; otherwise the library's palette is used for it. */
 export function colorScaleOverrides(name, wml) {
-  if (name !== 'turbo') return {};
-  const precip = wml.getColorScale('precipitation', false);
-  return { precipitation: turboBreakpointScale(precip.unit, precip.breakpoints) };
+  const out = { radar_reflectivity: REFLECTIVITY_SCALE };
+  if (name === 'turbo') {
+    const precip = wml.getColorScale('precipitation', false);
+    out.precipitation = turboBreakpointScale(precip.unit, precip.breakpoints);
+  }
+  return out;
 }

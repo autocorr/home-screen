@@ -53,7 +53,7 @@ with sync_playwright() as p:
             sw = pg.evaluate("document.documentElement.scrollWidth")
             check("no horizontal page scroll", sw <= w, f"scrollWidth {sw} / viewport {w}")
             clipped = pg.evaluate("""[...document.querySelectorAll(
-                '.clock-time, .clock-sub, .day, .tile, .table-wrap, .chart-card, .map-wrap, .map-time, .map-info')]
+                '.section-head, .clock-time, .clock-sub, .day, .tile, .table-wrap, .chart-card, .map-wrap, .map-time, .map-info')]
                 .filter(e => e.offsetParent && e.scrollWidth > e.clientWidth + 1)
                 .map(e => e.className + ':' + e.textContent.trim().slice(0, 20))""")
             check("nothing overflows its box", not clipped, "; ".join(clipped)[:200])
@@ -117,6 +117,32 @@ with sync_playwright() as p:
                 pg.focus("#pm-slider"); pg.keyboard.press("ArrowRight"); pg.wait_for_timeout(300)
                 check("map timeline steps", pg.inner_text("#pm-time") != t_before,
                       f"{t_before} -> {pg.inner_text('#pm-time')}")
+
+                # Radar: observed IEM mosaic up to now, then the RRFS reflectivity forecast.
+                # Switching while at "now" lands on the radar's "now" (the latest scan).
+                pg.click("#pm-now")
+                pg.click("#pm-qty button[data-qty=refl]")
+                try:
+                    pg.wait_for_function("/Radar to .* run \\d\\dZ/.test(document.querySelector('#pm-status').textContent)", timeout=30000)
+                    pg.wait_for_function("/Socorro: .*(dBZ|no echo)/.test(document.querySelector('#pm-value').textContent)", timeout=30000)
+                except Exception:
+                    pass
+                st = pg.inner_text("#pm-status")
+                check("radar loads observed scans and RRFS runs", "Radar to" in st and "run" in st, st)
+                check("radar starts at the latest observed scan", "observed · latest" in pg.inner_text("#pm-time"), pg.inner_text("#pm-time"))
+                check("radar reads dBZ at Socorro", "Socorro" in pg.inner_text("#pm-value"), pg.inner_text("#pm-value"))
+                check("radar hides the model switch", pg.is_hidden("#pm-model"))
+                check("radar legend in dBZ", pg.inner_text("#pm-legend-unit") == "dBZ")
+                pg.click("#pm-next")
+                pg.wait_for_timeout(500)
+                check("radar steps from observed to forecast", "RRFS" in pg.inner_text("#pm-time"), pg.inner_text("#pm-time"))
+                pg.click("#pm-qty button[data-qty=precip]")
+                try:
+                    pg.wait_for_function("/run \\d\\dZ \\(/.test(document.querySelector('#pm-status').textContent)", timeout=30000)
+                except Exception:
+                    pass
+                check("switch back to precipitation", pg.is_visible("#pm-model") and pg.inner_text("#pm-legend-unit") != "dBZ",
+                      pg.inner_text("#pm-status"))
 
             if shots:
                 pg.evaluate("window.scrollTo(0,0)")

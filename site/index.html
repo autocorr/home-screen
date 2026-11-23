@@ -109,21 +109,22 @@
 
   <section id="precip" data-section="precip" class="panel" aria-labelledby="pm-h">
     <header class="section-head">
-      <h2 id="pm-h"><button class="section-toggle" aria-expanded="true" aria-controls="pm-body">Precipitation map</button></h2>
+      <h2 id="pm-h"><button class="section-toggle" aria-expanded="true" aria-controls="pm-body">Precipitation &amp; radar</button></h2>
       <div class="controls head-controls">
+        <div class="seg" id="pm-qty" role="group" aria-label="Quantity"></div>
         <div class="seg" id="pm-model" role="group" aria-label="Forecast model"></div>
         <div class="seg" id="pm-base" role="group" aria-label="Basemap"></div>
       </div>
     </header>
     <div class="section-body" id="pm-body">
       <div class="map-wrap">
-        <div id="pm-map" class="map" role="region" aria-label="Precipitation map"></div>
+        <div id="pm-map" class="map" role="region" aria-label="Precipitation and radar map"></div>
         <div id="pm-consent" class="map-consent" hidden></div>
       </div>
       <div class="map-time">
         <button type="button" id="pm-play" class="icon-btn" aria-label="Play">▶</button>
         <button type="button" id="pm-prev" class="icon-btn" aria-label="Previous time step" title="Previous time step" disabled>‹</button>
-        <input type="range" id="pm-slider" min="0" max="0" value="0" aria-label="Forecast time" disabled>
+        <input type="range" id="pm-slider" min="0" max="0" value="0" aria-label="Time" disabled>
         <button type="button" id="pm-next" class="icon-btn" aria-label="Next time step" title="Next time step" disabled>›</button>
         <button type="button" id="pm-now" class="btn" title="Jump to now and reset the readout to Socorro">Now</button>
       </div>

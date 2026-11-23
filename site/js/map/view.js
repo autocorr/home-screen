@@ -227,15 +227,45 @@ export class MapView {
   destroy() { this.map.remove(); }
 }
 
-/** Legend as a CSS gradient bar with tick labels. `fmt(value)` formats a label. */
-export function renderLegend(el, legend, fmt = String) {
+/**
+ * Chain layers into one timeline, e.g. observed radar, then a 15-minute
+ * forecast, then an hourly one. Each layer only covers times after the last
+ * frame of the layers before it, so where they overlap the earlier one wins.
+ * A layer with no frames (not loaded, or failed) is skipped over.
+ * Returns wrapped layers (same ids; `inner` is the original).
+ */
+export function stitchLayers(layers) {
+  return layers.map((inner, i) => {
+    const after = () => {
+      let t = -Infinity;
+      for (const l of layers.slice(0, i)) { const f = l.frames(); if (f.length) t = Math.max(t, f.at(-1).time); }
+      return t;
+    };
+    const fallback = (t) => {
+      let best = null;
+      for (const f of inner.frames()) if (f.time <= t) best = f;
+      return best && t - best.time <= (inner.maxGapMs ?? Infinity) ? best : null;
+    };
+    return Object.assign(Object.create(inner), {
+      inner,
+      frames: () => { const a = after(); return inner.frames().filter((f) => f.time > a); },
+      frameFor: (t) => (t > after() ? (inner.frameFor ? inner.frameFor(t) : fallback(t)) : null),
+    });
+  });
+}
+
+/**
+ * Legend as a CSS gradient bar with tick labels. `fmt(value)` formats a label.
+ * `zeroLabel`: label the first (transparent) step 0, for quantities where below it is "none".
+ */
+export function renderLegend(el, legend, fmt = String, { zeroLabel = true } = {}) {
   if (!legend) { el.innerHTML = ''; return; }
   const n = legend.stops.length;
   // Equal-width steps: breakpoint scales are roughly logarithmic.
   const grad = legend.stops.map(([, c], i) => `${c} ${(i / n) * 100}% ${((i + 1) / n) * 100}%`).join(',');
   const every = Math.ceil(n / 7);
   // The first step is transparent (below it is dry): label it 0.
-  const ticks = legend.stops.map(([v], i) => (i % every ? '' : i === 0 ? `<span style="left:0">0</span>` :
+  const ticks = legend.stops.map(([v], i) => (i % every ? '' : i === 0 ? `<span style="left:0">${zeroLabel ? 0 : fmt(v)}</span>` :
     `<span style="left:${(i / n) * 100}%">${fmt(v)}</span>`)).join('');
   el.innerHTML = `<div class="legend-bar" style="background:linear-gradient(90deg,${grad})"></div>` +
     `<div class="legend-ticks">${ticks}</div>`;

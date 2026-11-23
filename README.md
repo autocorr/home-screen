@@ -14,10 +14,16 @@ Sections can be collapsed by tapping their heading, and reordered or hidden with
   [Open-Meteo](https://open-meteo.com/) (temperature, precipitation, cloud layers, wind,
   humidity, precipitable water, pressure, UV, solar radiation, visibility, CAPE,
   freezing level, AQI, particulates, gases, AOD).
-- **Precipitation map**: forecast precipitation rate (RRFS or NBM) over a cut-out
-  around Socorro and the VLA, from Open-Meteo's spatial files on AWS, drawn with
+- **Precipitation & radar map**: over a cut-out around Socorro and the VLA, drawn with
   [MapLibre](https://maplibre.org/) on an OpenStreetMap basemap (streets, OSM or topo).
-  It has a time slider with playback and one-step ‹ › buttons, and you can tap the map to read the value at a point.
+  - **Precip** shows the forecast precipitation rate (RRFS or NBM) from Open-Meteo's
+    spatial files on AWS.
+  - **Radar** shows observed reflectivity from the
+    [IEM NEXRAD mosaic](https://mesonet.agron.iastate.edu/docs/nexrad_mosaic/) for the
+    past 2 h, followed by the RRFS simulated reflectivity forecast on the same timeline.
+
+  Both have a time slider with playback and one-step ‹ › buttons, and you can tap the
+  map to read the value at a point.
 - **Links**: placeholders. Edit `LINKS` in `site/js/config.js`.
 
 The theme follows the OS light/dark preference by default; Settings can override it.
@@ -36,12 +42,13 @@ site/
   js/links.js         links section
   js/settings.js      settings dialog (theme, section order/visibility)
   js/charts.js        shared uPlot helpers (theme, touch cursor, now line, night shading)
-  js/precip.js        precipitation map section (controls, timeline, storage prompt)
-  js/map/view.js      generic MapLibre view: basemap, markers, time-varying data layers
+  js/precip.js        precipitation & radar map section (controls, timeline, storage prompt)
+  js/map/view.js      generic MapLibre view: basemap, markers, time-varying data layers, layer stitching
   js/map/basemaps.js  OSM-based basemaps
   js/map/openmeteo.js Open-Meteo spatial forecast (.om) data layer
+  js/map/iem.js       observed radar data layer (IEM NEXRAD mosaic tiles, decoded to dBZ)
   js/map/storage.js   map data block cache (disk or memory) and its permission
-  js/map/colormaps.js Turbo colour map as a weather-map-layer colour scale
+  js/map/colormaps.js Turbo colour scales (precipitation, reflectivity) for weather-map-layer
   vendor/             uPlot, astronomy-engine, maplibre-gl, @openmeteo/weather-map-layer (see VERSIONS)
 scripts/
   check_astro.py      cross-checks site positions against astropy
@@ -96,7 +103,8 @@ open all day costs about 24 × 3.6 + 2 × 1 ≈ 90 calls. The free tier allows 1
 
 The map loads its libraries (MapLibre and Open-Meteo's
 [weather-map-layer](https://github.com/open-meteo/weather-map-layer), about 4 MB with
-WASM) only when the section is on screen and expanded. It needs WebGL2.
+WASM) only when the section is on screen and expanded. Collapsing or hiding the
+section pauses playback. It needs WebGL2.
 
 **Colours and units.** Precipitation uses Google's Turbo colour map
 (`PRECIP_MAP.colormap` in `config.js`; set `'default'` for Open-Meteo's palette). The
@@ -104,8 +112,11 @@ first step (below 0.01 mm/h) is transparent, so dry ground stays clear. The weat
 section's °F/°C switch also changes the map's legend, point readout and scale bar.
 
 **Past runs.** Add `?pm_run=2026-11-21T12Z&pm_time=2026-11-21T16Z` to the URL to show
-an older run, which stays on S3 for a while, at a given valid time. The run's
-`meta.json` is read once and not polled.
+an older run at a given valid time. Old runs stay on S3 for roughly a week. The run's
+`meta.json` is read once and not polled. The hourly RRFS and NBM runs used for precipitation
+are only made every 6 h, so `pm_run` needs a 00/06/12/18Z hour there. In the radar view,
+the observed scans end at `pm_run`. The forecast then comes from that hour's 15-minute
+RRFS run and, after 18 h, from the 6-hourly run at or before it.
 
 **Data.** Each model publishes one `.om` file per valid time on AWS
 (`openmeteo.s3.amazonaws.com/data_spatial/<model>/<run>/<time>.om`). Each file is about 100 MB and holds
@@ -140,7 +151,49 @@ GitHub Pages can't send the COOP/COEP headers that would let the renderer share 
 with its workers. Without them, each worker gets a copy of the cut-out. The cut-out is
 small, so this costs little.
 
-**Adding a data source (e.g. radar reflectivity).** `site/js/map/view.js` knows nothing
+### Radar view
+
+The timeline joins three layers with `stitchLayers` (`view.js`). Each layer only covers
+the times after the previous layer's last frame:
+
+1. **Observed:** the IEM NEXRAD N0Q mosaic, every 5 min for the past
+   `PRECIP_MAP.radar.historyH` (2) hours. It is base reflectivity, at about 0.5 km
+   resolution.
+2. **RRFS 15 min:** Open-Meteo `ncep_rrfs_conus_15min` `radar_reflectivity`. New runs come
+   hourly and reach 18 h ahead.
+3. **RRFS hourly:** `ncep_rrfs_conus` `radar_reflectivity`. New runs come every 6 h and reach
+   84 h ahead.
+
+The first view, and **Now**, show the newest observed scan. While you stay there, the view
+follows new scans as they arrive.
+
+**Base vs composite.** The forecast is the simulated *composite* reflectivity: the
+strongest echo anywhere in the column. IEM only publishes a *base* mosaic, built from each
+radar's lowest beam. Composite is never lower than base, and can be noticeably higher for
+tall storms, or where terrain blocks the lowest beam. Free composite mosaics exist only as
+pre-coloured images (NOAA's MRMS map server) or as whole-US GRIB2 files (~1.8 MB per 2 min).
+
+**Observed tiles, decoded.** IEM draws its tiles with a 256-colour palette that has one
+colour per 0.5 dBZ step, without blending between colours. So every tile pixel maps back to
+an exact dBZ value:
+
+- the `iem://` MapLibre protocol (`site/js/map/iem.js`) fetches IEM's tile and turns its
+  pixels back into dBZ;
+- it then redraws the tile with the same colour scale (`REFLECTIVITY_SCALE`) the forecast
+  uses, so observed and forecast frames look alike;
+- the same decoded values give the tap-to-read value.
+
+Below 5 dBZ is transparent and reads "no echo". The palette is embedded in `iem.js`, taken
+from the mosaic's GIS PNG
+(`mesonet.agron.iastate.edu/archive/data/YYYY/MM/DD/GIS/uscomp/n0q_*.png`).
+
+**Fetch budget.**
+- **Scan list** (`json/radar.py`, ~2 kB): read at most every 2 min while the map is visible.
+- **Tiles:** about 1–20 kB each. They are requested up to zoom 8 (about the mosaic's own
+  resolution; MapLibre enlarges them beyond that) and only inside the cut-out. They go
+  through the browser's HTTP cache, not the map data cache.
+
+**Adding a data source.** `site/js/map/view.js` knows nothing
 about where data comes from. A data layer is a plain object with `id`, `frames()`
 (sorted `{time, key}`), `sourceSpec(frame, {dark})` returning a MapLibre raster source
 (an XYZ `tiles` template works as well as `om://`), and optionally `frameFor(t)`,
@@ -162,7 +215,9 @@ uv run tests/firefox_selenium_check.py            # your installed Firefox via g
 The checks cover: no horizontal scroll, no element overflowing its box, clocks
 ticking, all charts drawn, tap/hover cursor sync, section collapse and order
 persisting, theme, the weather cache being reused on reload, the precipitation map
-(storage prompt, model run loaded, value at Socorro, timeline), and no JS errors.
+(storage prompt, model run loaded, value at Socorro, timeline), the radar view (scans and
+RRFS runs loaded, starting at the latest scan, dBZ readout, stepping into the forecast,
+switching back), and no JS errors.
 
 Limits:
 - Firefox for Android can't be automated here. The Playwright Firefox run at 393 px
