@@ -128,5 +128,6 @@ export const SECTIONS = [
   { id: 'sats', label: 'Satellites' },
   { id: 'weather', label: 'Weather' },
   { id: 'precip', label: 'Precipitation & radar map' },
+  { id: 'calc', label: 'Calculator' },
   { id: 'links', label: 'Links' },
 ];

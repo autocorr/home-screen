@@ -200,6 +200,23 @@
     </div>
   </section>
 
+  <section id="calc" data-section="calc" class="panel" aria-labelledby="calc-h">
+    <header class="section-head">
+      <h2 id="calc-h"><button class="section-toggle" aria-expanded="true" aria-controls="calc-body">Calculator</button></h2>
+    </header>
+    <div class="section-body" id="calc-body">
+      <div class="calc-term" id="calc-term">
+        <div id="calc-log" class="calc-log" role="log" aria-live="polite" aria-label="Calculator output"></div>
+        <div class="calc-row calc-input-row">
+          <label class="calc-prompt" id="calc-prompt" for="calc-input">In [1]:</label>
+          <textarea id="calc-input" class="calc-input" rows="1" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" enterkeyhint="go" aria-describedby="calc-hint"></textarea>
+        </div>
+        <div id="calc-complete" class="calc-complete" role="listbox" aria-label="Completions" hidden></div>
+      </div>
+      <p id="calc-hint" class="note">Enter runs · Shift+Enter new line · ↑↓ history · Tab completes · <kbd>?</kbd>&nbsp;help</p>
+    </div>
+  </section>
+
   <section id="links" data-section="links" class="panel" aria-labelledby="links-h">
     <header class="section-head">
       <h2 id="links-h"><button class="section-toggle" aria-expanded="true" aria-controls="links-list">Links</button></h2>

@@ -61,7 +61,7 @@ with sync_playwright() as p:
             sw = pg.evaluate("document.documentElement.scrollWidth")
             check("no horizontal page scroll", sw <= w, f"scrollWidth {sw} / viewport {w}")
             clipped = pg.evaluate("""[...document.querySelectorAll(
-                '.section-head, .clock-time, .clock-sub, .day, .tile, .table-wrap, .chart-card, .map-wrap, .map-time, .map-info, .sat-grid, .sat-passes-card')]
+                '.section-head, .clock-time, .clock-sub, .day, .tile, .table-wrap, .chart-card, .map-wrap, .map-time, .map-info, .sat-grid, .sat-passes-card, .calc-term')]
                 .filter(e => e.offsetParent && e.scrollWidth > e.clientWidth + 1)
                 .map(e => e.className + ':' + e.textContent.trim().slice(0, 20))""")
             check("nothing overflows its box", not clipped, "; ".join(clipped)[:200])
@@ -284,9 +284,30 @@ with sync_playwright() as p:
                   any("/v1/forecast" in u for u in wx_reqs) and not any("air-quality" in u for u in wx_reqs),
                   ", ".join(u.split("?")[0] for u in wx_reqs))
 
+            # Calculator: Enter runs, units convert, errors show, history and Tab completion work.
+            inp = pg.locator("#calc-input"); inp.scroll_into_view_if_needed(); inp.click()
+            for line in ["x = [1, 2, 3] km", "x -> m", "undefined_name", "(1 +"]:
+                inp.type(line); inp.press("Enter")
+            inp.type("2)"); inp.press("Enter")
+            pg.wait_for_function("document.querySelectorAll('#calc-log .calc-cell').length >= 4", timeout=10000)
+            outs = pg.locator("#calc-log .calc-out").all_inner_texts()
+            check("calculator converts units", any("[1000.0, 2000.0, 3000.0] m" in o for o in outs), " | ".join(outs)[:200])
+            check("calculator continues an open bracket", any(o.endswith("3") for o in outs), " | ".join(outs)[:200])
+            check("calculator shows errors", "NameError" in pg.inner_text("#calc-log"))
+            check("calculator prompt counts", pg.inner_text("#calc-prompt") == "In [5]:", pg.inner_text("#calc-prompt"))
+            inp.press("ArrowUp")
+            check("calculator history recall", inp.input_value() == "(1 +\n2)", repr(inp.input_value()))
+            inp.press("Escape"); inp.type("1.4 GH"); inp.press("Tab")
+            check("calculator Tab completion", inp.input_value() == "1.4 GHz", inp.input_value())
+            inp.press("Escape"); inp.press("Escape"); inp.type("\\epsilon"); inp.press("Tab")
+            check("calculator LaTeX completion", inp.input_value() == "ϵ", inp.input_value())
+            inp.press("Escape"); inp.press("Escape")
+            sw = pg.evaluate("document.documentElement.scrollWidth")
+            check("calculator: no horizontal page scroll", sw <= w, f"scrollWidth {sw}")
+
             # Every section collapses (catches ID rules overriding the collapse rule).
             bad = []
-            for sec in ["clocks", "world", "sky", "sats", "weather", "precip", "links"]:
+            for sec in ["clocks", "world", "sky", "sats", "weather", "precip", "calc", "links"]:
                 tog = pg.locator(f'[data-section="{sec}"] .section-toggle')
                 tog.scroll_into_view_if_needed(); tog.click()
                 if pg.locator(f'[data-section="{sec}"] .section-body').is_visible(): bad.append(sec)
@@ -341,7 +362,7 @@ with sync_playwright() as p:
             pg.reload(); pg.wait_for_timeout(1500)
             order = pg.evaluate("[...document.querySelectorAll('main > section')]"
                                 ".sort((a,b)=>a.style.order-b.style.order).map(s=>s.id)")
-            check("section order persists", order.index("links") < order.index("precip"), ",".join(order))
+            check("section order persists", order.index("links") < order.index("calc"), ",".join(order))
             check("theme override persists", pg.evaluate("document.documentElement.dataset.theme") in ("light", "dark"))
             check("weather served from cache on reload", not wx_reqs, f"{len(wx_reqs)} data requests")
             check("satellite elements fetched once", len(tle_reqs) <= 2, "; ".join(tle_reqs)[:200])
