@@ -13,6 +13,7 @@ import { MapView, renderLegend, stitchLayers } from './map/view.js';
 import { installProtocol, openMeteoForecastLayer } from './map/openmeteo.js';
 import { installIemProtocol, iemRadarLayer } from './map/iem.js';
 import { colorScaleOverrides, REFLECTIVITY_SCALE } from './map/colormaps.js';
+import { CLUTTER } from './data/clutter.js';
 import {
   clearDiskCache, diskCacheStats, createBlockCache, diskCacheAvailable, getStoragePref, setStoragePref, DISK_MAX_MB, DISK_MAX_AGE_H,
 } from './map/storage.js';
@@ -330,7 +331,9 @@ async function load() {
     ]);
     colorScales = colorScaleOverrides(PRECIP_MAP.colormap, wml);
     installProtocol(maplibregl, wml, { cache: createBlockCache(wml), bounds: PRECIP_MAP.bounds, colorScales });
-    installIemProtocol(maplibregl, wml, { colorScale: REFLECTIVITY_SCALE, bounds: PRECIP_MAP.bounds });
+    installIemProtocol(maplibregl, wml, {
+      colorScale: REFLECTIVITY_SCALE, bounds: PRECIP_MAP.bounds, clutterMap: PRECIP_MAP.radar.removeClutter ? CLUTTER : null,
+    });
     const [w, s, e, n] = PRECIP_MAP.bounds;
     const padLon = (e - w) * 0.15, padLat = (n - s) * 0.15;
     view = new MapView(els.map, {

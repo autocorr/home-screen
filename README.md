@@ -50,6 +50,7 @@ site/
   js/tle.js           CelesTrak orbital elements: fetch, parse, localStorage cache
   js/data/starmap.js  bright stars, constellation lines and labels (generated)
   js/data/satmags.js  satellite standard magnitudes (generated)
+  js/data/clutter.js  radar ground-clutter map metadata (generated; the map is data/n0q_clutter.png)
   js/weather.js       Open-Meteo fetch + localStorage cache + charts
   js/clocks.js        MT/UTC/LST and world clocks
   js/links.js         links section
@@ -72,6 +73,7 @@ scripts/
   astro_dump.mjs      helper used by check_astro.py
   build_starmap.py    regenerates js/data/starmap.js from d3-celestial's data
   build_satmags.py    regenerates js/data/satmags.js from McCants' magnitudes
+  build_clutter.py    regenerates the radar ground-clutter map from past IEM scans
   vendor.sh           re-download vendored libraries
 .github/workflows/pages.yml   deploys site/ to GitHub Pages
 ```
@@ -310,6 +312,29 @@ Below 5 dBZ is transparent and reads "no echo". The palette is embedded in `iem.
 from the mosaic's GIS PNG
 (`mesonet.agron.iastate.edu/archive/data/YYYY/MM/DD/GIS/uscomp/n0q_*.png`).
 
+**Ground clutter.** Where a radar's lowest beam grazes nearby mountains, the mosaic shows
+weak echo in all weathers. Here that means the Sandia–Manzano crest (from KABX), the San
+Andres, Organ and Franklin ranges (KEPZ), the Sacramentos (KHDX) and Mt Taylor. In clear
+weather that clutter reaches 20–30 dBZ, so a higher display threshold wouldn't remove
+it. Instead `scripts/build_clutter.py` samples a year of past scans, keeps the
+clear ones, and writes a per-pixel clutter map (`site/data/n0q_clutter.png`, metadata in
+`site/js/data/clutter.js`):
+
+- **limit:** for pixels that show echo (≥ 5 dBZ) in at least 10% of clear scans, the
+  95th percentile of those echoes. A value at or below it could be clutter alone, so it is
+  hidden (and reads "no echo"). About 1.4% of the cut-out has a limit; there it removes
+  ~96% of clear-sky clutter, while scans with weather keep 97% of their ≥ 20 dBZ echo.
+- **level:** the median clutter power. A value above the limit is shown with that power
+  removed: echo powers add in linear Z, so dBZ' = 10 log10(Z − Z_clutter). This changes
+  strong echoes by under 0.5 dB, and stops rain over a ridge reading high.
+
+Rain over the clutter pixels that is weaker than their limit is hidden with the clutter;
+everywhere else the mosaic is unchanged. On coarser tiles (zoom < 8) each pixel takes the
+highest limit and level of the zoom-8 pixels it covers. `PRECIP_MAP.radar.removeClutter`
+turns this off. The map only needs rebuilding if a radar or the cut-out changes. The script
+uses IEM's WMS (one image per scan, one request at a time, every image cached in
+`~/.cache/home-screen/n0q`) and stops on any server error.
+
 **Fetch budget.**
 - **Scan list** (`json/radar.py`, ~2 kB): read at most every 2 min while the map is visible.
 - **Tiles:** about 1–20 kB each. They are requested up to zoom 8 (about the mosaic's own
@@ -413,6 +438,7 @@ uv run tests/browser_check.py --engine chromium   # same checks in Chromium
 uv run tests/firefox_selenium_check.py            # your installed Firefox via geckodriver
 node tests/calc_check.mjs                         # calculator engine (no browser)
 node tests/tle_policy_check.mjs                   # CelesTrak usage-policy handling (no network)
+node tests/clutter_check.mjs                      # radar clutter correction and map (no network)
 ```
 
 The checks cover: no horizontal scroll, no element overflowing its box, clocks
