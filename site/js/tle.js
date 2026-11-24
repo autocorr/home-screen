@@ -12,9 +12,8 @@
 //
 // CelesTrak's usage policy (https://celestrak.org/usage-policy.php):
 // - GP data is updated every 2 hours; download it at most once per update. Update is
-//   refused for `SATS.minUpdateH` (12) hours after a successful download while the
-//   elements are still held, and for POLICY_H (2) hours when they are not (memory-only
-//   storage after a reload, or a cleared cache). An attempt is shared by every open tab.
+//   refused for `SATS.minUpdateH` (2, never less than POLICY_H) hours after a successful
+//   download, in any tab. An attempt is shared by every open tab.
 // - Use FORMAT=csv: legacy FORMAT=tle is no longer served for all objects (6-digit
 //   catalog numbers have no TLE) and JSON is ~3x larger.
 // - Software must stop querying on any non-200 response and report it to a human.
@@ -29,7 +28,7 @@ import { CACHES, getStoragePref, useDisk, onStoragePref, putCached, getCached } 
 export const META_KEY = 'sats:gp:v4';
 const OLD_KEY = 'sats:gp:v3';           // bookkeeping and elements together, in localStorage
 const ELEMENTS = new URL('sats/gp.json', globalThis.location?.href ?? 'https://localhost/').href;  // Cache Storage key
-const POLICY_H = 2;                     // CelesTrak updates GP data every 2 h
+const POLICY_H = 2;                     // CelesTrak updates GP data every 2 h: the shortest allowed interval
 const GP = 'https://celestrak.org/NORAD/elements/gp.php';
 // OMM fields kept per object: what satellite.js's json2satrec needs.
 const FIELDS = ['OBJECT_NAME', 'NORAD_CAT_ID', 'EPOCH', 'MEAN_MOTION', 'ECCENTRICITY', 'INCLINATION',
@@ -162,8 +161,7 @@ export async function cachedTLE() {
 /**
  * Why Update may not download now (given cachedTLE()), or null if it may:
  *  { reason: 'halted' } | { reason: 'recent', until: ms, hours } | { reason: 'retry', until: ms }
- *  'recent' = elements downloaded less than `hours` ago (SATS.minUpdateH if this tab has
- *  them, else POLICY_H); 'retry' = a failed (or in-progress, in another tab) attempt
+ *  'recent' = elements downloaded (in any tab) less than `hours` ago; 'retry' = a failed (or in-progress, in another tab) attempt
  *  less than SATS.retryMin ago.
  */
 export function updateBlocked(c, now = Date.now()) {
@@ -171,7 +169,7 @@ export function updateBlocked(c, now = Date.now()) {
   const retry = c?.tried ? c.tried + Math.max(15, SATS.retryMin) * 60e3 : 0;
   if (now < retry) return { reason: 'retry', until: retry };
   const last = c?.downloaded ?? c?.fetched;
-  const hours = c?.sats && Object.keys(c.sats).length ? Math.max(POLICY_H, SATS.minUpdateH) : POLICY_H;
+  const hours = Math.max(POLICY_H, SATS.minUpdateH);
   const recent = last ? last + hours * 3600e3 : 0;
   if (now < recent) return { reason: 'recent', until: recent, hours };
   return null;

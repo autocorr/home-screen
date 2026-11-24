@@ -1,7 +1,7 @@
 // Checks that site/js/tle.js follows CelesTrak's usage policy, with fetch and
 // localStorage stubbed (no network, no Cache Storage: elements are held in memory):   node tests/tle_policy_check.mjs
 // https://celestrak.org/usage-policy.php: CSV format, at most one download per 2 h
-// update (Update is refused for 12 h after a download), stop on any non-200 answer, wait at least 15 min after a 5xx.
+// update (Update is refused for 2 h after a download), stop on any non-200 answer, wait at least 15 min after a 5xx.
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 
@@ -57,16 +57,16 @@ answer = (url) => ({ status: 200, body: url.includes('CATNR') ? EXTRA_CSV : CSV 
 let c = await refreshTLE();
 check('downloads the group and extras as CSV', calls.length === 1 + SATS.extra.length && calls.every((u) => u.includes('FORMAT=csv')), calls.join(' '));
 check('stores the elements', Object.keys(c.sats).length === 14 && !c.error && !c.halted);
-check('Update within 12 h is refused', updateBlocked(await cachedTLE(), Date.now() + 11.9 * H)?.reason === 'recent');
+check('Update within 2 h is refused', updateBlocked(await cachedTLE(), Date.now() + 1.9 * H)?.reason === 'recent');
 calls.length = 0;
 await refreshTLE();
 check('…and refreshTLE itself sends nothing', calls.length === 0);
-check('Update allowed after 12 h', !updateBlocked(await cachedTLE(), Date.now() + SATS.minUpdateH * H + 1));
-check('minimum update interval is at least 12 h', SATS.minUpdateH >= 12);
+check('Update allowed after 2 h', !updateBlocked(await cachedTLE(), Date.now() + SATS.minUpdateH * H + 1));
+check('minimum update interval is at least 2 h', SATS.minUpdateH >= 2);
 check('…and an empty cache may download', !updateBlocked(null));
 
 // Memory-only storage: after a reload the elements are gone, but the download time is
-// still known, so Update waits for CelesTrak's next 2 h update rather than 12 h.
+// still known, so Update still waits for CelesTrak's next update.
 await fresh();
 c = await cachedTLE();
 check('reload without stored elements keeps the bookkeeping', !Object.keys(c.sats).length && c.downloaded > 0);

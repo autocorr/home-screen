@@ -111,10 +111,10 @@ with sync_playwright() as p:
             pg.click("#sat-consent button[data-pref=disk]")
             pg.wait_for_function("document.querySelector('#sat-el .uplot')", timeout=15000)
             check("satellites: Update disabled after a download", pg.is_disabled("#sat-update") and
-                  "again in 12" in (pg.get_attribute("#sat-update", "title") or ""), pg.get_attribute("#sat-update", "title"))
+                  "again in 2" in (pg.get_attribute("#sat-update", "title") or ""), pg.get_attribute("#sat-update", "title"))
             n_tle = len(tle_reqs)
             pg.eval_on_selector("#sat-update", "(b) => { b.disabled = false; b.click(); }"); pg.wait_for_timeout(300)
-            check("satellites: Update within 12 h sends nothing", len(tle_reqs) == n_tle, f"{n_tle} -> {len(tle_reqs)}")
+            check("satellites: Update within 2 h sends nothing", len(tle_reqs) == n_tle, f"{n_tle} -> {len(tle_reqs)}")
             check("satellite elements stored in Cache Storage", pg.evaluate(
                 "caches.open('sats-v1').then(c => c.match(new URL('sats/gp.json', location.href).href))"
                 ".then(r => r ? r.json() : {sats: {}}).then(e => Object.keys(e.sats).length)") >= 100)

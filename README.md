@@ -170,11 +170,10 @@ with Skyfield to within a few seconds.
   elements this browser already holds, or asks you to press **Update**. The first Update
   asks where to keep data (see [Data storage](#data-storage)); elements go to Cache Storage
   (`sats-v1`) or stay in the tab's memory only.
-  Update is disabled for 12 h after a successful download (`SATS.minUpdateH`; CelesTrak
-  updates GP data every 2 h and asks for at most one download per update). With memory-only
-  storage a reload starts without elements, so there Update waits only 2 h. The download
+  Update is disabled for 2 h after a successful download (`SATS.minUpdateH`; CelesTrak
+  updates GP data every 2 h and asks for at most one download per update). The download
   times and any refusal are always kept in localStorage (`sats:gp:v4`), so these limits hold
-  across reloads whatever the storage choice. Update's tooltip
+  across reloads and tabs whatever the storage choice. Update's tooltip
   and the status line's tooltip say when it is available again. Each attempt is recorded before it is
   sent, so other open tabs see it, pick up the new elements and don't download their own.
 - **Non-200 answers.** The policy asks clients to stop querying and tell a human.
@@ -227,7 +226,7 @@ names, and names for the brightest stars.
 | Magnitudes `js/data/satmags.js` | 1.4 kB | Same |
 | satellite.js | 24 kB (11 kB) | Same |
 | `sats.js`, `sats-worker.js`, `tle.js` | 46 kB (17 kB) | Same |
-| CelesTrak `visual` group + 1 single-satellite request (CSV) | ~22 kB + 0.3 kB, only when Update is pressed, at most every 12 h (compressed in transfer) | ~55 kB of elements in Cache Storage, or memory only ([Data storage](#data-storage)) |
+| CelesTrak `visual` group + 1 single-satellite request (CSV) | ~22 kB + 0.3 kB, only when Update is pressed, at most every 2 h (compressed in transfer) | ~55 kB of elements in Cache Storage, or memory only ([Data storage](#data-storage)) |
 
 The star catalogue is part of the page's code, so after the first load it costs only a
 revalidation request. It uses no localStorage or Cache Storage.
@@ -472,7 +471,7 @@ node tests/clutter_check.mjs                      # radar clutter correction and
 
 The checks cover: no horizontal scroll, no element overflowing its box, clocks
 ticking, all charts drawn, tap/hover cursor sync, the satellite section (nothing
-downloaded on load, the storage prompt on the first Update, Update fetching once and storing the elements in Cache Storage, a second Update within 12 h refused, stars drawn, chart cursor moving the sky view, passes sorted by brightness,
+downloaded on load, the storage prompt on the first Update, Update fetching once and storing the elements in Cache Storage, a second Update within 2 h refused, stars drawn, chart cursor moving the sky view, passes sorted by brightness,
 the magnitude cutoff, panning the chart, showing a pass, the ISS week table, no computation while collapsed), section collapse and order
 persisting, theme, the weather cache being reused on reload, the precipitation map
 (no second storage prompt, model run loaded, value at Socorro, timeline), the radar view (scans and

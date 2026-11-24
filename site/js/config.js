@@ -55,7 +55,7 @@ export const SATS = {
   // Magnitude cutoff slider: only passes at least this bright are shown.
   magCut: { min: -2, max: 5, step: 0.5, default: 2.5 },
   week: { id: 25544, days: 7 },  // satellite and span (days) of the week-ahead pass table
-  minUpdateH: 12,      // Update downloads nothing within this many hours of the last download
+  minUpdateH: 2,       // Update downloads nothing within this many hours of the last download (CelesTrak updates GP data every 2 h)
   retryMin: 30,        // after a failed download, Update waits this long before trying again
   window: { before: 1, after: 48, stepSec: 15 },  // hours around now; sampling step
   minPassEl: 10,       // passes lower than this (deg) are left out
