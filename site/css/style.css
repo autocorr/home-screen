@@ -100,7 +100,7 @@ section.collapsed .section-body, section.collapsed .head-controls { display: non
 .icon-btn { font-size: 1rem; min-width: 32px; }
 .btn { padding: 4px 12px; }
 .move button { min-width: 34px; min-height: 34px; }
-.move button:disabled, .seg button:disabled { opacity: .35; cursor: default; }
+.move button:disabled, .seg button:disabled, .btn:disabled { opacity: .35; cursor: default; }
 
 /* ---- clocks: columns divided by rules ---- */
 .clocks { display: grid; grid-template-columns: repeat(3, 1fr); }
@@ -214,6 +214,8 @@ dialog::backdrop { background: rgba(0, 0, 0, .45); }
 .swatch.on-sky { background: #0b1226; outline: 1px solid #0b1226; }
 .polar-info .pi-wide { grid-column: 1 / -1; white-space: normal; }
 #sat-polar-info { min-height: calc(4 * 1.35em); align-content: start; }
+.sat-update { display: flex; align-items: baseline; gap: 10px; }
+.sat-update .btn { flex: none; }
 .sat-week-card { grid-area: week; min-width: 0; display: grid; gap: 4px; }
 .sat-polar-card { grid-area: polar; min-width: 0; }
 .sat-el-card { grid-area: chart; min-width: 0; }

@@ -55,8 +55,8 @@ export const SATS = {
   // Magnitude cutoff slider: only passes at least this bright are shown.
   magCut: { min: -2, max: 5, step: 0.5, default: 2.5 },
   week: { id: 25544, days: 7 },  // satellite and span (days) of the week-ahead pass table
-  refreshH: 6,         // refetch elements older than this
-  retryMin: 30,        // after a failed fetch, wait this long before trying again
+  minUpdateH: 12,      // Update downloads nothing within this many hours of the last download
+  retryMin: 30,        // after a failed download, Update waits this long before trying again
   window: { before: 1, after: 48, stepSec: 15 },  // hours around now; sampling step
   minPassEl: 10,       // passes lower than this (deg) are left out
   darkSunEl: -6,       // the sky counts as dark (satellites visible) when the Sun is below this

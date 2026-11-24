@@ -12,7 +12,7 @@ import { SATS, TZ } from './config.js';
 import { makeChart, cssVar, fmtTime } from './charts.js';
 import { STARS, STAR_NAMES, LINES, LABELS } from './data/starmap.js';
 import { STD_MAG, STD_MAG_DATE } from './data/satmags.js';
-import { cachedTLE, tleNeedsRefresh, refreshTLE, clearTLEHalt, ommEpoch } from './tle.js';
+import { cachedTLE, updateBlocked, refreshTLE, clearTLEHalt, ommEpoch, TLE_KEY } from './tle.js';
 
 const D2R = Math.PI / 180, R2D = 180 / Math.PI;
 const RE = 6378.137;  // km
@@ -45,6 +45,7 @@ let passes = [];         // passes over the window (from the worker); visible on
 let week = null;         // passes of SATS.week.id over the next SATS.week.days days
 let chart = null, cursorIdx = null;
 let tle = null;          // cache object from tle.js
+let downloading = false; // an Update is in flight in this tab
 let arcs = [];           // sky-view arcs as drawn, for hover hit-testing: [{p, pts: [[x, y, i]]}]
 let worker = null, seq = 0, pending = {}, computing = false;
 let computedAt = 0;      // when the last computation was started (ms)
@@ -176,18 +177,20 @@ export function initSats(el) {
   worker.onmessage = onWorker;
   worker.onerror = (e) => { computing = false; setStatus(`Pass computation failed: ${e.message}`, true); };
 
+  root.querySelector('#sat-update').addEventListener('click', update);
+
+  // Nothing is downloaded on load: only the elements already in localStorage are shown.
   markButtons(); renderTables(); drawPolar();
-  const c = cachedTLE();
-  if (c?.sats && Object.keys(c.sats).length) useTLE(c);
-  else setStatus('Loading orbital elements from CelesTrak…');
-  maybeRefresh();
+  syncFromStore();
 
   // Computation and redraws pause while the section is collapsed or hidden, or the
-  // tab is in the background; orbital elements keep refreshing (cheap, every 6 h).
+  // tab is in the background.
   setInterval(() => { if (isActive()) { chart?.redraw(false); if (cursorIdx == null) drawPolar(); } }, 10e3);
   setInterval(() => recompute(), RECOMPUTE_MS);
-  setInterval(() => { maybeRefresh(); setStatus(); }, 15 * 60e3);
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) { maybeRefresh(); wake(); } });
+  setInterval(() => { if (!downloading) setStatus(); }, 60e3);  // ages and the Update button's state
+  // Another tab updated (or tried to): use its elements, show its error.
+  window.addEventListener('storage', (e) => { if (e.key === TLE_KEY && !downloading) syncFromStore(); });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) wake(); });
   new MutationObserver(wake).observe(root, { attributes: true, attributeFilter: ['class', 'hidden'] });
 }
 
@@ -273,46 +276,69 @@ function onWorker(e) {
   renderTables(); drawPolar(); setStatus();
 }
 
-async function maybeRefresh() {
-  if (!tleNeedsRefresh()) {
-    // Pick up a stop (or a failure) recorded by another tab.
-    const c = cachedTLE();
-    if (c && (c.halted || !tle?.fetched)) { tle = c; setStatus(); }
-    return;
-  }
-  const c = await refreshTLE();
-  if (c.fetched && c.fetched !== tle?.fetched) useTLE(c);
+/** Show the elements in localStorage (if new to this tab) and their state. */
+function syncFromStore() {
+  const c = cachedTLE();
+  if (c?.fetched && c.fetched !== tle?.fetched && c.sats && Object.keys(c.sats).length) useTLE(c);
   else { tle = c; setStatus(); }
 }
 
-/** CelesTrak refused a request: downloads stay stopped until someone presses Retry. */
+/** The Update button: one download, unless updateBlocked() (recent, retry wait, refusal). */
+async function update() {
+  if (downloading) return;
+  if (cachedTLE()?.halted) clearTLEHalt();  // Retry: a person has seen CelesTrak's refusal
+  if (updateBlocked()) { syncFromStore(); return; }
+  downloading = true;
+  setStatus('Downloading orbital elements from CelesTrak…');
+  let c;
+  try { c = await refreshTLE(); } finally { downloading = false; }
+  if (c.fetched && c.fetched !== tle?.fetched && Object.keys(c.sats).length) useTLE(c);
+  else { tle = c; setStatus(); }
+}
+
+const fmtDur = (ms) => {
+  const h = ms / 3600e3;
+  return h < 1 ? `${Math.max(1, Math.round(h * 60))} min` : h < 48 ? `${h.toFixed(h < 10 ? 1 : 0)} h` : `${Math.round(h / 24)} d`;
+};
+
+/** Enable Update only when a download is allowed; say why not in its tooltip. */
+function syncButton(blk) {
+  const b = root.querySelector('#sat-update');
+  b.disabled = downloading || (blk != null && blk.reason !== 'halted');
+  b.textContent = blk?.reason === 'halted' ? 'Retry' : 'Update';
+  b.title = downloading ? 'Downloading…'
+    : !blk ? 'Download the latest orbital elements from CelesTrak'
+    : blk.reason === 'halted' ? 'Clear the stop and try one download now'
+    : blk.reason === 'recent' ? `Elements were downloaded less than ${SATS.minUpdateH} h ago; Update is available again in ${fmtDur(blk.until - Date.now())}`
+    : `The last download failed; Update is available again in ${fmtDur(blk.until - Date.now())}`;
+}
+
+/** CelesTrak refused a request: nothing is sent until someone presses Retry. */
 function haltNotice(el) {
   const h = tle.halted;
   el.classList.add('error');
-  el.textContent = `CelesTrak refused the last request (${h.message}). Automatic downloads are stopped, as its usage ` +
-    'policy asks, until you check the cause and retry. ';
-  const b = document.createElement('button');
-  b.type = 'button'; b.className = 'btn'; b.textContent = 'Retry';
-  b.title = 'Clear the stop and try one download now';
-  b.addEventListener('click', () => { clearTLEHalt(); tle = cachedTLE(); setStatus('Retrying…'); maybeRefresh(); });
+  el.textContent = `CelesTrak refused the last request (${h.message}). Downloads are stopped, as its usage ` +
+    'policy asks; check the cause, then press Retry. ';
   const a = document.createElement('a');
   a.href = 'https://celestrak.org/usage-policy.php'; a.textContent = 'usage policy'; a.rel = 'noopener';
-  el.append(b, ' · ', a);
+  el.append(a);
 }
 
 function setStatus(msg, isError = false) {
   const el = root.querySelector('#sat-status');
+  const blk = updateBlocked(tle);
+  syncButton(blk);
+  el.title = '';
   if (msg) { el.textContent = msg; el.classList.toggle('error', isError); return; }
-  if (!tle?.fetched) {
+  const wait = blk?.until ? ` Update is available again in ${fmtDur(blk.until - Date.now())}.` : '';
+  if (!tle?.fetched || !sats.size) {
     if (tle?.halted) { haltNotice(el); return; }
-    el.textContent = `Couldn't load orbital elements from CelesTrak${tle?.error ? `: ${tle.error}` : ''}. Retrying later.`;
-    el.classList.add('error');
+    el.classList.toggle('error', Boolean(tle?.error));
+    el.textContent = tle?.error ? `Couldn't download orbital elements from CelesTrak: ${tle.error}.${wait || ' Press Update to try again.'}`
+      : 'No orbital elements are stored in this browser. Press Update to download them from CelesTrak.';
     return;
   }
-  const ago = (ms) => {
-    const h = (Date.now() - ms) / 3600e3;
-    return h < 1 ? `${Math.max(1, Math.round(h * 60))} min` : h < 48 ? `${h.toFixed(h < 10 ? 1 : 0)} h` : `${Math.round(h / 24)} d`;
-  };
+  const ago = (ms) => fmtDur(Date.now() - ms);
   const all = [...sats.values()];
   const ages = all.map((s) => (Date.now() - s.epoch) / 86400e3).sort((a, b) => a - b);
   const median = ages[Math.floor(ages.length / 2)] ?? 0;
@@ -320,13 +346,15 @@ function setStatus(msg, isError = false) {
   const stale = weekSat && (Date.now() - weekSat.epoch) / 86400e3 > 14;
   const est = all.filter((s) => !s.stdSrc.startsWith('McCants')).length;
   el.classList.toggle('error', Boolean(tle.error) || stale);
-  el.textContent = `${all.length} satellites (CelesTrak “${SATS.group}” group), elements fetched ${ago(tle.fetched)} ago, ` +
-    `median epoch ${median.toFixed(1)} d old · brightness from McCants' magnitudes, ${est} estimated` +
+  // Short line; warnings only when there is something wrong. Details are in the tooltip.
+  el.textContent = `${all.length} satellites from CelesTrak, updated ${ago(tle.fetched)} ago` +
     (stale ? ` · ${weekSat.name} elements are ${Math.round((Date.now() - weekSat.epoch) / 86400e3)} d old` : '') +
-    (tle.error && !tle.halted ? ` · last refresh failed: ${tle.error}` : '') + (computing ? ' · updating…' : '');
+    (tle.error && !tle.halted ? ` · last update failed: ${tle.error}` : '') + (computing ? ' · computing…' : '');
   if (tle.halted) { el.append(' · '); const s = document.createElement('span'); el.append(s); haltNotice(s); el.classList.add('error'); }
-  el.title = `Elements: celestrak.org GP data. Standard magnitudes: Mike McCants' quicksat list (${STD_MAG_DATE}); ` +
-    `${est} objects not in it use estimates (config.js). Oldest epoch ${ages.at(-1)?.toFixed(1)} d.`;
+  el.title = `CelesTrak “${SATS.group}” group, GP data. Median epoch ${median.toFixed(1)} d old, oldest ` +
+    `${ages.at(-1)?.toFixed(1)} d. Standard magnitudes: Mike McCants' quicksat list (${STD_MAG_DATE}); ` +
+    `${est} objects not in it use estimates (config.js).` +
+    (blk?.until ? ` Update is available again in ${fmtDur(blk.until - Date.now())}.` : '');
 }
 
 // ---------- chart ----------
