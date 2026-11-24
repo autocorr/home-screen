@@ -94,6 +94,9 @@ export const PRECIP_MAP = {
   // the one before it ends.
   radar: {
     historyH: 2,
+    // Hide ground clutter (mountains near the radars) with the map built by
+    // scripts/build_clutter.py, and remove it from echoes above it.
+    removeClutter: true,
     forecasts: [
       { id: 'ncep_rrfs_conus_15min', label: 'RRFS 15 min', runEveryH: 1 },  // 18 h ahead
       { id: 'ncep_rrfs_conus', label: 'RRFS hourly', runEveryH: 6 },        // 84 h ahead

@@ -10,6 +10,13 @@
 // scale the Open-Meteo forecast layer uses, so observed and forecast frames
 // look alike. The decoded values also give a tap-to-read point value.
 //
+// Ground clutter: where a radar beam grazes nearby mountains the mosaic shows
+// weak echo in all weathers. An optional clutter map (scripts/build_clutter.py)
+// gives, per pixel, the highest value clutter alone reaches (its clear-sky 95th
+// percentile) and its typical level. Values at or below the first are hidden;
+// stronger ones are shown with the clutter removed in linear Z, since echo
+// powers add: dBZ' = 10 log10(Z - Z_clutter).
+//
 // Fetch budget:
 //   - The scan list (json/radar.py, ~2 kB) is read on start, then at most
 //     every POLL_MIN minutes while the map is on screen.
@@ -43,6 +50,7 @@ const PALETTE_HEX =
   '024e50024d50023f40023e40023d40013030012f30012020011f20011e203a67b53a66b53a65b53a64b53a63b53a62b5';
 
 const dbzOf = (index) => 0.5 * index - 32.5;
+const indexOfDbz = (dbz) => Math.round((dbz + 32.5) * 2);
 const pad = (n) => String(n).padStart(2, '0');
 const stamp = (d) => `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}`;
 const iso = (d) => d.toISOString().slice(0, 16) + 'Z';
@@ -103,6 +111,66 @@ async function decodeTile(ts, z, x, y, signal) {
   return p;
 }
 
+// ---------- ground clutter ----------
+
+let clutter = null;          // Promise<meta & { limit, level }> (zoom-8 grid) or null
+const clutterGrids = new Map();   // zoom -> grid, block maxima of the zoom-8 one
+
+/** Palette index after clutter removal (0 = hidden) for observed index k, given the pixel's clutter limit and level. */
+const CORRECT = (() => {
+  const lin = (i) => (i ? 10 ** (dbzOf(i) / 10) : 0);
+  const t = new Uint8Array(256 * 256);   // [level][k]
+  for (let lev = 0; lev < 256; lev++) {
+    for (let k = 1; k < 256; k++) {
+      const z = lin(k) - lin(lev);
+      t[lev * 256 + k] = z > 0 ? Math.min(255, Math.max(1, indexOfDbz(10 * Math.log10(z)))) : 0;
+    }
+  }
+  return t;
+})();
+export const declutter = (k, limit, level) => (k <= limit ? 0 : level ? CORRECT[level * 256 + k] : k);
+
+async function loadClutter(meta) {
+  const r = await fetch(new URL(meta.url, document.baseURI));
+  if (!r.ok) throw new Error(`clutter map: ${r.status}`);
+  const bmp = await createImageBitmap(await r.blob(), { colorSpaceConversion: 'none', premultiplyAlpha: 'none' });
+  const c = new OffscreenCanvas(meta.width, meta.height);
+  const ctx = c.getContext('2d', { willReadFrequently: true });
+  ctx.drawImage(bmp, 0, 0);
+  bmp.close();
+  const px = ctx.getImageData(0, 0, meta.width, meta.height).data;
+  const n = meta.width * meta.height, limit = new Uint8Array(n), level = new Uint8Array(n);
+  for (let i = 0, j = 0; i < n; i++, j += 4) { limit[i] = px[j]; level[i] = px[j + 1]; }
+  return { x0: meta.x0, y0: meta.y0, w: meta.width, h: meta.height, limit, level };
+}
+
+/**
+ * The clutter grid at zoom z (<= the map's zoom). A coarser IEM tile pixel stands
+ * for a block of zoom-8 pixels, so it takes the block's highest limit and level.
+ */
+function clutterGrid(base, z) {
+  const s = 2 ** (NATIVE_Z - z);
+  if (s === 1) return base;
+  let g = clutterGrids.get(z);
+  if (g) return g;
+  const x0 = Math.floor(base.x0 / s), y0 = Math.floor(base.y0 / s);
+  const w = Math.ceil((base.x0 + base.w) / s) - x0, h = Math.ceil((base.y0 + base.h) / s) - y0;
+  g = { x0, y0, w, h, limit: new Uint8Array(w * h), level: new Uint8Array(w * h) };
+  for (let r = 0; r < base.h; r++) {
+    const gr = Math.floor((base.y0 + r) / s) - y0;
+    for (let c = 0; c < base.w; c++) {
+      const i = r * base.w + c, j = gr * w + Math.floor((base.x0 + c) / s) - x0;
+      if (base.limit[i] > g.limit[j]) g.limit[j] = base.limit[i];
+      if (base.level[i] > g.level[j]) g.level[j] = base.level[i];
+    }
+  }
+  clutterGrids.set(z, g);
+  return g;
+}
+
+/** The loaded zoom-8 clutter grid, or null (none configured, or it failed to load: then nothing is corrected). */
+const clutterBase = () => (clutter ? clutter.catch(() => null) : Promise.resolve(null));
+
 let protocolInstalled = false;
 let lut = null;              // palette index -> RGBA (Uint8ClampedArray, 256 * 4)
 let clip = null;             // [w, s, e, n]
@@ -110,12 +178,17 @@ let clip = null;             // [w, s, e, n]
 /**
  * Register the iem:// protocol once. `colorScale` is a weather-map-layer
  * colour scale (dBZ), drawn with `wml.getColor` exactly as the forecast is.
- * Pixels outside `bounds` [w, s, e, n] are left transparent.
+ * Pixels outside `bounds` [w, s, e, n] are left transparent. `clutterMap` is
+ * the metadata from js/data/clutter.js, or null to show the mosaic as is.
  */
-export function installIemProtocol(maplibregl, wml, { colorScale, bounds }) {
+export function installIemProtocol(maplibregl, wml, { colorScale, bounds, clutterMap = null }) {
   if (protocolInstalled) return;
   protocolInstalled = true;
   clip = bounds;
+  if (clutterMap) {
+    clutter = loadClutter(clutterMap);
+    clutter.catch((e) => console.warn('Radar clutter map not loaded; showing the mosaic uncorrected.', e));
+  }
   lut = new Uint8ClampedArray(256 * 4);
   for (let i = 1; i < 256; i++) {
     const [r, g, b, a = 1] = wml.getColor(colorScale, dbzOf(i), false);
@@ -125,7 +198,8 @@ export function installIemProtocol(maplibregl, wml, { colorScale, bounds }) {
     const m = params.url.match(/^iem:\/\/(\d{12})\/(\d+)\/(\d+)\/(\d+)/);
     if (!m) throw new Error(`bad iem url ${params.url}`);
     const [ts, z, x, y] = [m[1], +m[2], +m[3], +m[4]];
-    const idx = await decodeTile(ts, z, x, y, abort.signal);
+    const [idx, base] = await Promise.all([decodeTile(ts, z, x, y, abort.signal), clutterBase()]);
+    const g = base && clutterGrid(base, z);
     const out = new ImageData(256, 256);
     const d = out.data;
     // Columns/rows inside the cut-out.
@@ -133,8 +207,15 @@ export function installIemProtocol(maplibregl, wml, { colorScale, bounds }) {
     const x0 = Math.max(0, Math.ceil(lonToPx(w, z) - x * 256 - 0.5)), x1 = Math.min(256, Math.floor(lonToPx(e, z) - x * 256 + 0.5));
     const y0 = Math.max(0, Math.ceil(latToPx(n, z) - y * 256 - 0.5)), y1 = Math.min(256, Math.floor(latToPx(s, z) - y * 256 + 0.5));
     for (let row = y0; row < y1; row++) {
+      const gr = y * 256 + row - (g?.y0 ?? 0);
+      const inRow = g && gr >= 0 && gr < g.h;
       for (let col = x0, i = row * 256 + x0; col < x1; col++, i++) {
-        const k = idx[i];
+        let k = idx[i];
+        if (!k) continue;
+        if (inRow) {
+          const gc = x * 256 + col - g.x0;
+          if (gc >= 0 && gc < g.w) k = declutter(k, g.limit[gr * g.w + gc], g.level[gr * g.w + gc]);
+        }
         if (k) d.set(lut.subarray(k * 4, k * 4 + 4), i * 4);
       }
     }
@@ -184,8 +265,11 @@ export function iemRadarLayer({ label = 'Observed radar', historyH = 2, bounds, 
       if (lng < w || lng > e || lat < s || lat > n) return null;
       const px = Math.floor(lonToPx(lng, NATIVE_Z)), py = Math.floor(latToPx(lat, NATIVE_Z));
       try {
-        const idx = await decodeTile(frame.key, NATIVE_Z, px >> 8, py >> 8);
-        return dbzOf(idx[(py & 255) * 256 + (px & 255)]);   // index 0 (no echo) reads as -32.5
+        const [idx, g] = await Promise.all([decodeTile(frame.key, NATIVE_Z, px >> 8, py >> 8), clutterBase()]);
+        let k = idx[(py & 255) * 256 + (px & 255)];
+        const gc = px - (g?.x0 ?? 0), gr = py - (g?.y0 ?? 0);
+        if (k && g && gc >= 0 && gc < g.w && gr >= 0 && gr < g.h) k = declutter(k, g.limit[gr * g.w + gc], g.level[gr * g.w + gc]);
+        return dbzOf(k);   // index 0 (no echo, or clutter) reads as -32.5
       } catch { return null; }
     },
     get newest() { return newest; },
