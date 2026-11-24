@@ -311,16 +311,17 @@ dialog::backdrop { background: rgba(0, 0, 0, .45); }
   .u-legend.u-inline > tbody { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
 }
 
+/* ---- storage prompt (satellites, map) ---- */
+.consent { display: grid; gap: 10px; font-size: 0.85rem; }
+.consent[hidden] { display: none; }
+.consent p { margin: 0; max-width: 60ch; }
+.consent .set-actions { justify-content: flex-start; }
+#sat-consent { margin-top: 10px; padding: 12px; border: 1px solid var(--rule); }
+
 /* ---- precipitation map ---- */
 .map-wrap { position: relative; height: min(62vh, 520px); min-height: 280px; border: 1px solid var(--rule); }
 .map { position: absolute; inset: 0; background: var(--grid); }
-.map-consent {
-  position: absolute; inset: 0; z-index: 3; display: grid; align-content: center; gap: 10px;
-  padding: 16px; background: var(--page); font-size: 0.85rem; overflow: auto;
-}
-.map-consent[hidden] { display: none; }
-.map-consent p { margin: 0; max-width: 60ch; }
-.map-consent .set-actions { justify-content: flex-start; }
+.map-consent { position: absolute; inset: 0; z-index: 3; align-content: center; padding: 16px; background: var(--page); overflow: auto; }
 .btn-primary { background: var(--text); color: var(--page); border-color: var(--text); }
 .map-time { display: flex; align-items: center; gap: 8px; }
 .map-time input[type="range"] { flex: 1; min-width: 0; accent-color: var(--accent); height: 30px; }

@@ -47,7 +47,7 @@ site/
   js/sky.js           sky table, polar plot, el/az charts
   js/sats.js          satellites section: sky view canvas, pass chart, tables, cutoff slider
   js/sats-worker.js   Web Worker: SGP4 pass finding, sunlight and brightness
-  js/tle.js           CelesTrak orbital elements: fetch, parse, localStorage cache
+  js/tle.js           CelesTrak orbital elements: fetch, parse, store (per the storage choice)
   js/data/starmap.js  bright stars, constellation lines and labels (generated)
   js/data/satmags.js  satellite standard magnitudes (generated)
   js/data/clutter.js  radar ground-clutter map metadata (generated; the map is data/n0q_clutter.png)
@@ -59,13 +59,14 @@ site/
                       display), ops.js (operators, broadcasting, indexing, conversion), units.js
                       (units and constants), builtins.js (math, array helpers), repl.js (eval, help, magics)
   js/settings.js      settings dialog (theme, section order/visibility)
+  js/storage.js       data storage choice shared by satellites, map and radar: prompt, Cache Storage helpers, Settings controls
   js/charts.js        shared uPlot helpers (theme, touch cursor, now line, night shading)
-  js/precip.js        precipitation & radar map section (controls, timeline, storage prompt)
+  js/precip.js        precipitation & radar map section (controls, timeline)
   js/map/view.js      generic MapLibre view: basemap, markers, time-varying data layers, layer stitching
   js/map/basemaps.js  OSM-based basemaps
   js/map/openmeteo.js Open-Meteo spatial forecast (.om) data layer
   js/map/iem.js       observed radar data layer (IEM NEXRAD mosaic tiles, decoded to dBZ)
-  js/map/storage.js   map data block cache (disk or memory) and its permission
+  js/map/storage.js   map data block cache (disk or memory, per js/storage.js)
   js/map/colormaps.js Turbo colour scales (precipitation, reflectivity) for weather-map-layer
   vendor/             uPlot, astronomy-engine, satellite.js, maplibre-gl, @openmeteo/weather-map-layer (see VERSIONS)
 scripts/
@@ -166,9 +167,13 @@ with Skyfield to within a few seconds.
 - One request for the `visual` group plus one per `SATS.extra` id that the group doesn't
   include. The browser asks for gzip/brotli compression itself.
 - **Only on request.** Opening the page sends nothing to CelesTrak: the section shows the
-  elements already kept in localStorage (`sats:gp:v3`), or asks you to press **Update**.
-  Update is disabled for 12 h after a successful download (`SATS.minUpdateH`; CelesTrak
-  updates GP data every 2 h and asks for at most one download per update), and its tooltip
+  elements this browser already holds, or asks you to press **Update**. The first Update
+  asks where to keep data (see [Data storage](#data-storage)); elements go to Cache Storage
+  (`sats-v1`) or stay in the tab's memory only.
+  Update is disabled for 2 h after a successful download (`SATS.minUpdateH`; CelesTrak
+  updates GP data every 2 h and asks for at most one download per update). The download
+  times and any refusal are always kept in localStorage (`sats:gp:v4`), so these limits hold
+  across reloads and tabs whatever the storage choice. Update's tooltip
   and the status line's tooltip say when it is available again. Each attempt is recorded before it is
   sent, so other open tabs see it, pick up the new elements and don't download their own.
 - **Non-200 answers.** The policy asks clients to stop querying and tell a human.
@@ -221,7 +226,7 @@ names, and names for the brightest stars.
 | Magnitudes `js/data/satmags.js` | 1.4 kB | Same |
 | satellite.js | 24 kB (11 kB) | Same |
 | `sats.js`, `sats-worker.js`, `tle.js` | 46 kB (17 kB) | Same |
-| CelesTrak `visual` group + 1 single-satellite request (CSV) | ~22 kB + 0.3 kB, only when Update is pressed, at most every 12 h (compressed in transfer) | ~55 kB of elements in localStorage |
+| CelesTrak `visual` group + 1 single-satellite request (CSV) | ~22 kB + 0.3 kB, only when Update is pressed, at most every 2 h (compressed in transfer) | ~55 kB of elements in Cache Storage, or memory only ([Data storage](#data-storage)) |
 
 The star catalogue is part of the page's code, so after the first load it costs only a
 revalidation request. It uses no localStorage or Cache Storage.
@@ -262,17 +267,15 @@ Data outside the cut-out is never downloaded or drawn.
   each frame to draw before moving on.
 - The first time a file is opened there is one HEAD request.
 
-**Storage.** The first time the map loads, it asks whether to keep downloaded blocks on disk:
-- **Allow disk cache:** blocks go into the browser's Cache Storage (`map-blocks-v1`),
-  capped at 300 MB. Blocks older than 48 h are removed. A reload re-downloads nothing for
-  frames already seen. The site also asks the browser to make its storage persistent
-  (`navigator.storage.persist`), so the cache is not evicted under storage pressure.
-  Firefox may show a permission prompt for this.
+**Storage** follows the site-wide [Data storage](#data-storage) choice; if it hasn't been
+made yet, the map asks before it loads.
+- **Disk:** blocks go into the browser's Cache Storage (`map-blocks-v1`), capped at 300 MB.
+  Blocks older than 48 h are removed. A reload re-downloads nothing for frames already seen.
 - **Memory only:** a 16 MB in-memory cache, so every reload re-downloads.
 
 Either way, blocks are held in RAM only briefly, and at most 4 decoded frames are kept.
-You can change the choice, see usage, or clear the cache in ⚙ Settings → *Map data cache*.
-A change takes effect after a reload. Basemap tiles use the browser's normal HTTP cache.
+A change of choice reaches the map after a reload. Basemap tiles use the browser's normal
+HTTP cache.
 
 GitHub Pages can't send the COOP/COEP headers that would let the renderer share memory
 with its workers. Without them, each worker gets a copy of the cut-out. The cut-out is
@@ -340,8 +343,11 @@ uses IEM's WMS (one image per scan, one request at a time, every image cached in
 **Fetch budget.**
 - **Scan list** (`json/radar.py`, ~2 kB): read at most every 2 min while the map is visible.
 - **Tiles:** about 1–20 kB each. They are requested up to zoom 8 (about the mosaic's own
-  resolution; MapLibre enlarges them beyond that) and only inside the cut-out. They go
-  through the browser's HTTP cache, not the map data cache.
+  resolution; MapLibre enlarges them beyond that) and only inside the cut-out. A tile URL
+  names one scan and never changes, so with [Data storage](#data-storage) on disk tiles are
+  kept in Cache Storage (`radar-tiles-v1`, up to 50 MB, removed after 6 h) and a reload
+  fetches only new scans. With memory only they go through the browser's HTTP cache
+  (IEM sends `max-age=300`).
 
 **Adding a data source.** `site/js/map/view.js` knows nothing
 about where data comes from. A data layer is a plain object with `id`, `frames()`
@@ -415,6 +421,26 @@ and output last for the page's lifetime, as in an IPython session. The engine (~
 ~45 kB gzipped) is loaded when the input is first focused. `node tests/calc_check.mjs`
 checks it against values from Python and astropy.
 
+## Data storage
+
+Satellite elements, forecast map blocks and radar tiles share one storage choice
+(`site/js/storage.js`). It is asked once, in whichever place needs it first: the map
+section when it first loads, or the satellites section on the first Update. Answering in
+one place answers everywhere, in every open tab.
+
+- **Allow storage (Disk):** each kind of data gets its own Cache Storage cache:
+  `sats-v1` (one entry, ~55 kB), `map-blocks-v1` (up to 300 MB, 48 h) and `radar-tiles-v1`
+  (up to 50 MB, 6 h). The site also asks the browser to make its storage persistent
+  (`navigator.storage.persist`), so the caches aren't evicted under storage pressure.
+  Firefox may show a permission prompt for this.
+- **Memory only:** nothing is written to disk; each page load starts empty.
+
+⚙ Settings → *Data storage* changes the choice, shows the usage of each cache and clears
+them. Choosing memory only deletes all three caches. Small bookkeeping (preferences, the
+weather cache, CelesTrak download times) stays in localStorage either way. An earlier map
+choice (`map:storage`) carries over, and satellite elements left in localStorage by
+earlier versions move to Cache Storage once storage is allowed.
+
 ## Testing in browsers
 
 **Every network service is mocked in the tests.** The test suite must never contact a real
@@ -445,11 +471,11 @@ node tests/clutter_check.mjs                      # radar clutter correction and
 
 The checks cover: no horizontal scroll, no element overflowing its box, clocks
 ticking, all charts drawn, tap/hover cursor sync, the satellite section (nothing
-downloaded on load, Update fetching once and caching, a second Update within 12 h refused, stars drawn, chart cursor moving the sky view, passes sorted by brightness,
+downloaded on load, the storage prompt on the first Update, Update fetching once and storing the elements in Cache Storage, a second Update within 2 h refused, stars drawn, chart cursor moving the sky view, passes sorted by brightness,
 the magnitude cutoff, panning the chart, showing a pass, the ISS week table, no computation while collapsed), section collapse and order
 persisting, theme, the weather cache being reused on reload, the precipitation map
-(storage prompt, model run loaded, value at Socorro, timeline), the radar view (scans and
-RRFS runs loaded, starting at the latest scan, dBZ readout, stepping into the forecast,
+(no second storage prompt, model run loaded, value at Socorro, timeline), the radar view (scans and
+RRFS runs loaded, starting at the latest scan, dBZ readout, tiles stored, stepping into the forecast,
 switching back), the calculator (unit conversion, continuation lines, errors, history, Tab
 completion), and no JS errors.
 

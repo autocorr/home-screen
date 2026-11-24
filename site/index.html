@@ -147,6 +147,7 @@
         <button type="button" class="btn" id="sat-update">Update</button>
         <p id="sat-status" class="note" aria-live="polite"></p>
       </div>
+      <div id="sat-consent" class="consent" hidden></div>
     </div>
   </section>
 
@@ -185,7 +186,7 @@
     <div class="section-body" id="pm-body">
       <div class="map-wrap">
         <div id="pm-map" class="map" role="region" aria-label="Precipitation and radar map"></div>
-        <div id="pm-consent" class="map-consent" hidden></div>
+        <div id="pm-consent" class="consent map-consent" hidden></div>
       </div>
       <div class="map-time">
         <button type="button" id="pm-play" class="icon-btn" aria-label="Play">▶</button>
@@ -255,15 +256,15 @@
       <button type="button" id="set-clear-cache" class="btn">Clear weather cache</button>
     </div>
     <div>
-      <h3>Map data cache</h3>
-      <p class="note">Where downloaded forecast map data is kept. Disk uses this browser's Cache Storage; memory-only re-downloads on every page load. Takes effect after a reload.</p>
+      <h3>Data storage</h3>
+      <p class="note">Where downloaded satellite elements, forecast map data and radar images are kept. Disk uses this browser's Cache Storage; memory only keeps them for this page load. The forecast map applies a change after a reload.</p>
       <div class="set-row">
-        <div class="seg" id="set-map-cache" role="group" aria-label="Map data cache">
+        <div class="seg" id="set-storage" role="group" aria-label="Data storage">
           <button type="button" data-pref="disk">Disk</button><button type="button" data-pref="memory">Memory only</button>
         </div>
-        <button type="button" id="set-map-clear" class="btn">Clear</button>
+        <button type="button" id="set-storage-clear" class="btn">Clear</button>
       </div>
-      <p id="set-map-usage" class="note"></p>
+      <p id="set-storage-usage" class="note"></p>
     </div>
     <div class="set-actions">
       <button type="button" id="set-reset" class="btn">Reset to defaults</button>

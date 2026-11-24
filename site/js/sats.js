@@ -12,7 +12,8 @@ import { SATS, TZ } from './config.js';
 import { makeChart, cssVar, fmtTime } from './charts.js';
 import { STARS, STAR_NAMES, LINES, LABELS } from './data/starmap.js';
 import { STD_MAG, STD_MAG_DATE } from './data/satmags.js';
-import { cachedTLE, updateBlocked, refreshTLE, clearTLEHalt, ommEpoch, TLE_KEY } from './tle.js';
+import { cachedTLE, updateBlocked, refreshTLE, clearTLEHalt, ommEpoch, META_KEY } from './tle.js';
+import { askStorage } from './storage.js';
 
 const D2R = Math.PI / 180, R2D = 180 / Math.PI;
 const RE = 6378.137;  // km
@@ -46,6 +47,7 @@ let week = null;         // passes of SATS.week.id over the next SATS.week.days 
 let chart = null, cursorIdx = null;
 let tle = null;          // cache object from tle.js
 let downloading = false; // an Update is in flight in this tab
+let asking = false;      // Update is waiting for the storage choice
 let arcs = [];           // sky-view arcs as drawn, for hover hit-testing: [{p, pts: [[x, y, i]]}]
 let worker = null, seq = 0, pending = {}, computing = false;
 let computedAt = 0;      // when the last computation was started (ms)
@@ -179,7 +181,7 @@ export function initSats(el) {
 
   root.querySelector('#sat-update').addEventListener('click', update);
 
-  // Nothing is downloaded on load: only the elements already in localStorage are shown.
+  // Nothing is downloaded on load: only the elements this browser already holds are shown.
   markButtons(); renderTables(); drawPolar();
   syncFromStore();
 
@@ -189,7 +191,7 @@ export function initSats(el) {
   setInterval(() => recompute(), RECOMPUTE_MS);
   setInterval(() => { if (!downloading) setStatus(); }, 60e3);  // ages and the Update button's state
   // Another tab updated (or tried to): use its elements, show its error.
-  window.addEventListener('storage', (e) => { if (e.key === TLE_KEY && !downloading) syncFromStore(); });
+  window.addEventListener('storage', (e) => { if (e.key === META_KEY && !downloading) syncFromStore(); });
   document.addEventListener('visibilitychange', () => { if (!document.hidden) wake(); });
   new MutationObserver(wake).observe(root, { attributes: true, attributeFilter: ['class', 'hidden'] });
 }
@@ -276,18 +278,21 @@ function onWorker(e) {
   renderTables(); drawPolar(); setStatus();
 }
 
-/** Show the elements in localStorage (if new to this tab) and their state. */
-function syncFromStore() {
-  const c = cachedTLE();
+/** Show the stored elements (if new to this tab) and their state. */
+async function syncFromStore() {
+  const c = await cachedTLE();
   if (c?.fetched && c.fetched !== tle?.fetched && c.sats && Object.keys(c.sats).length) useTLE(c);
   else { tle = c; setStatus(); }
 }
 
 /** The Update button: one download, unless updateBlocked() (recent, retry wait, refusal). */
 async function update() {
-  if (downloading) return;
-  if (cachedTLE()?.halted) clearTLEHalt();  // Retry: a person has seen CelesTrak's refusal
-  if (updateBlocked()) { syncFromStore(); return; }
+  if (downloading || asking) return;
+  // Where to keep the elements: the storage choice shared with the map and radar (asked once).
+  asking = true;
+  try { await askStorage(root.querySelector('#sat-consent')); } finally { asking = false; }
+  if ((await cachedTLE()).halted) clearTLEHalt();  // Retry: a person has seen CelesTrak's refusal
+  if (downloading || updateBlocked(await cachedTLE())) { await syncFromStore(); return; }
   downloading = true;
   setStatus('Downloading orbital elements from CelesTrak…');
   let c;
@@ -309,7 +314,7 @@ function syncButton(blk) {
   b.title = downloading ? 'Downloading…'
     : !blk ? 'Download the latest orbital elements from CelesTrak'
     : blk.reason === 'halted' ? 'Clear the stop and try one download now'
-    : blk.reason === 'recent' ? `Elements were downloaded less than ${SATS.minUpdateH} h ago; Update is available again in ${fmtDur(blk.until - Date.now())}`
+    : blk.reason === 'recent' ? `Elements were downloaded less than ${blk.hours} h ago; Update is available again in ${fmtDur(blk.until - Date.now())}`
     : `The last download failed; Update is available again in ${fmtDur(blk.until - Date.now())}`;
 }
 
@@ -335,7 +340,7 @@ function setStatus(msg, isError = false) {
     if (tle?.halted) { haltNotice(el); return; }
     el.classList.toggle('error', Boolean(tle?.error));
     el.textContent = tle?.error ? `Couldn't download orbital elements from CelesTrak: ${tle.error}.${wait || ' Press Update to try again.'}`
-      : 'No orbital elements are stored in this browser. Press Update to download them from CelesTrak.';
+      : `No orbital elements are stored in this browser.${wait || ' Press Update to download them from CelesTrak.'}`;
     return;
   }
   const ago = (ms) => fmtDur(Date.now() - ms);

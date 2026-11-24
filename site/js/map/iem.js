@@ -21,8 +21,13 @@
 //   - The scan list (json/radar.py, ~2 kB) is read on start, then at most
 //     every POLL_MIN minutes while the map is on screen.
 //   - Tiles are ~1-20 kB, fetched only for frames that are shown, and only at
-//     zoom <= NATIVE_Z (MapLibre overzooms beyond it) inside `bounds`. They go
-//     through the browser's HTTP cache (IEM sends max-age=300).
+//     zoom <= NATIVE_Z (MapLibre overzooms beyond it) inside `bounds`. A tile
+//     URL names one scan, so it never changes: with storage on disk (the
+//     shared choice in site/js/storage.js) tiles are kept in Cache Storage
+//     (CACHES.radar, pruned to LIMITS.radar) and a reload fetches only scans
+//     it hasn't seen. Otherwise they go through the browser's HTTP cache only
+//     (IEM sends max-age=300).
+import { CACHES, LIMITS, cachedFetch, pruneCache, useDisk } from '../storage.js';
 
 const IEM = 'https://mesonet.agron.iastate.edu';
 const tileUrl = (ts, z, x, y) => `${IEM}/cache/tile.py/1.0.0/ridge::USCOMP-N0Q-${ts}/${z}/${x}/${y}.png`;
@@ -91,7 +96,7 @@ async function decodeTile(ts, z, x, y, signal) {
   let p = decoded.get(key);
   if (p) { decoded.delete(key); decoded.set(key, p); return p; }
   p = (async () => {
-    const r = await fetch(tileUrl(ts, z, x, y), { signal });
+    const r = await cachedFetch(CACHES.radar, LIMITS.radar, tileUrl(ts, z, x, y), { signal });
     if (!r.ok) throw new Error(`IEM tile ${key}: ${r.status}`);
     // Exact colours: no colour management, no premultiplied alpha (alpha is 0 or 255 anyway).
     const bmp = await createImageBitmap(await r.blob(), { colorSpaceConversion: 'none', premultiplyAlpha: 'none' });
@@ -185,6 +190,7 @@ export function installIemProtocol(maplibregl, wml, { colorScale, bounds, clutte
   if (protocolInstalled) return;
   protocolInstalled = true;
   clip = bounds;
+  if (useDisk()) pruneCache(CACHES.radar, LIMITS.radar).catch(() => {});  // drop old scans on startup
   if (clutterMap) {
     clutter = loadClutter(clutterMap);
     clutter.catch((e) => console.warn('Radar clutter map not loaded; showing the mosaic uncorrected.', e));

@@ -5,7 +5,8 @@ import { initSats, rerender as rerenderSats } from './sats.js';
 import { initWeather, rerender as rerenderWeather } from './weather.js';
 import { initLinks } from './links.js';
 import { initCalc } from './calc.js';
-import { initPrecip, initPrecipSettings, rerender as rerenderPrecip } from './precip.js';
+import { initPrecip, rerender as rerenderPrecip } from './precip.js';
+import { initStorageSettings } from './storage.js';
 
 const $ = (id) => document.getElementById(id);
 const safe = (id, fn) => {
@@ -23,7 +24,8 @@ safe('clocks', () => initClocks($('clocks'), $('world')));
 safe('sky', () => initSky($('sky')));
 safe('sats', () => initSats($('sats')));
 safe('weather', () => initWeather($('weather')));
-safe('precip', () => { initPrecip($('precip')); initPrecipSettings($('settings')); });
+safe('precip', () => initPrecip($('precip')));
+safe('storage', () => initStorageSettings($('settings')));
 safe('calc', () => initCalc($('calc')));
 safe('links', () => initLinks($('links')));
 
