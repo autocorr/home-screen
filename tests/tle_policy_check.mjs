@@ -1,5 +1,5 @@
 // Checks that site/js/tle.js follows CelesTrak's usage policy, with fetch and
-// localStorage stubbed (no network):   node tests/tle_policy_check.mjs
+// localStorage stubbed (no network, no Cache Storage: elements are held in memory):   node tests/tle_policy_check.mjs
 // https://celestrak.org/usage-policy.php: CSV format, at most one download per 2 h
 // update (Update is refused for 12 h after a download), stop on any non-200 answer, wait at least 15 min after a 5xx.
 import { readFileSync } from 'node:fs';
@@ -25,7 +25,10 @@ const row = (id, name) => `"${name}",1998-067A,2026-11-20T12:00:00.000000,15.498
 const CSV = [HEAD, row(25544, 'ISS (ZARYA)'), ...Array.from({ length: 12 }, (_, i) => row(40000 + i, `SAT, ${i}`))].join('\r\n') + '\r\n';
 const EXTRA_CSV = [HEAD, row(53807, 'BLUEWALKER 3')].join('\n');
 
-const { refreshTLE, updateBlocked, clearTLEHalt, parseOMMcsv, cachedTLE } = await import('../site/js/tle.js');
+// A fresh module per scenario: tle.js holds the downloaded elements in memory.
+let refreshTLE, updateBlocked, clearTLEHalt, parseOMMcsv, cachedTLE, gen = 0;
+const fresh = async () => ({ refreshTLE, updateBlocked, clearTLEHalt, parseOMMcsv, cachedTLE } = await import(`../site/js/tle.js?${++gen}`));
+await fresh();
 const { SATS } = await import('../site/js/config.js');
 
 let fails = 0;
@@ -34,7 +37,7 @@ const check = (name, ok, detail = '') => {
   if (!ok) fails++;
 };
 const H = 3600e3;
-const reset = () => { store.clear(); calls.length = 0; };
+const reset = async () => { store.clear(); calls.length = 0; await fresh(); };
 
 // Parsing, and satellite.js accepting the result.
 const parsed = parseOMMcsv(CSV);
@@ -49,59 +52,75 @@ const r = Math.hypot(pv.position.x, pv.position.y, pv.position.z);
 check('json2satrec propagates the parsed elements', r > 6600 && r < 6900, `${r.toFixed(0)} km`);
 
 // Normal download: CSV URLs, group then extras.
-reset();
+await reset();
 answer = (url) => ({ status: 200, body: url.includes('CATNR') ? EXTRA_CSV : CSV });
 let c = await refreshTLE();
 check('downloads the group and extras as CSV', calls.length === 1 + SATS.extra.length && calls.every((u) => u.includes('FORMAT=csv')), calls.join(' '));
 check('stores the elements', Object.keys(c.sats).length === 14 && !c.error && !c.halted);
-check('Update within 12 h is refused', updateBlocked(cachedTLE(), Date.now() + 11.9 * H)?.reason === 'recent');
+check('Update within 12 h is refused', updateBlocked(await cachedTLE(), Date.now() + 11.9 * H)?.reason === 'recent');
 calls.length = 0;
 await refreshTLE();
 check('…and refreshTLE itself sends nothing', calls.length === 0);
-check('Update allowed after 12 h', !updateBlocked(cachedTLE(), Date.now() + SATS.minUpdateH * H + 1));
+check('Update allowed after 12 h', !updateBlocked(await cachedTLE(), Date.now() + SATS.minUpdateH * H + 1));
 check('minimum update interval is at least 12 h', SATS.minUpdateH >= 12);
 check('…and an empty cache may download', !updateBlocked(null));
 
+// Memory-only storage: after a reload the elements are gone, but the download time is
+// still known, so Update waits for CelesTrak's next 2 h update rather than 12 h.
+await fresh();
+c = await cachedTLE();
+check('reload without stored elements keeps the bookkeeping', !Object.keys(c.sats).length && c.downloaded > 0);
+check('…Update refused within 2 h', updateBlocked(c, Date.now() + 1.9 * H)?.reason === 'recent');
+check('…and allowed after 2 h', !updateBlocked(c, Date.now() + 2 * H + 1));
+
+// Elements left in localStorage by the previous version: used, bookkeeping kept.
+store.clear();
+store.set('sats:gp:v3', JSON.stringify({ fetched: Date.now() - H, tried: null, sats: parseOMMcsv(CSV) }));
+await fresh();
+c = await cachedTLE();
+check('old localStorage elements are still shown', Object.keys(c.sats).length === 13 && updateBlocked(c)?.hours === SATS.minUpdateH);
+check('…and kept until a storage choice is made', store.has('sats:gp:v3'));
+
 // 403: stop everything until a human clears it.
-reset();
+await reset();
 answer = () => ({ status: 403, body: '<html><body><h1>Forbidden</h1><p>Your IP has been blocked because...</p></body></html>' });
 c = await refreshTLE();
 check('403 halts downloads', c.halted?.status === 403 && /blocked because/.test(c.halted.message), c.error);
-check('…even days later', !!updateBlocked(cachedTLE(), Date.now() + 72 * H));
+check('…even days later', !!updateBlocked(await cachedTLE(), Date.now() + 72 * H));
 calls.length = 0;
 await refreshTLE();
 check('…and refreshTLE itself sends nothing', calls.length === 0);
 clearTLEHalt();
-check('Retry clears the halt', !updateBlocked(cachedTLE()));
+check('Retry clears the halt', !updateBlocked(await cachedTLE()));
 
 // 404 on an extra id: keep the group, stop querying.
-reset();
+await reset();
 answer = (url) => (url.includes('CATNR') ? { status: 404, body: 'Not found' } : { status: 200, body: CSV });
 c = await refreshTLE();
 check('404 on an extra keeps the group but halts', Object.keys(c.sats).length === 13 && c.halted?.status === 404);
 
 // 503: no halt, but wait at least 15 min (SATS.retryMin).
-reset();
+await reset();
 answer = () => ({ status: 503, body: 'busy' });
 c = await refreshTLE();
 check('503 does not halt', !c.halted && /503/.test(c.error));
-check('…and waits at least 15 min', !!updateBlocked(cachedTLE(), Date.now() + 14.9 * 60e3) &&
-  !updateBlocked(cachedTLE(), Date.now() + Math.max(15, SATS.retryMin) * 60e3 + 1));
+check('…and waits at least 15 min', !!updateBlocked(await cachedTLE(), Date.now() + 14.9 * 60e3) &&
+  !updateBlocked(await cachedTLE(), Date.now() + Math.max(15, SATS.retryMin) * 60e3 + 1));
 
 // Network failure (no answer): retried later, not halted.
-reset();
+await reset();
 answer = () => ({ network: true });
 c = await refreshTLE();
-check('network failure retries later', !c.halted && !!updateBlocked(cachedTLE()) && !updateBlocked(cachedTLE(), Date.now() + 31 * 60e3));
+check('network failure retries later', !c.halted && !!updateBlocked(await cachedTLE()) && !updateBlocked(await cachedTLE(), Date.now() + 31 * 60e3));
 
 // Redirect: use the data, but stop until the URL is fixed.
-reset();
+await reset();
 answer = (url) => ({ status: 200, body: CSV, redirected: url.replace('celestrak.org', 'www.celestrak.org') });
 c = await refreshTLE();
 check('redirect uses the data and halts', Object.keys(c.sats).length >= 13 && c.halted?.status === 301, c.error);
 
 // A 200 with no usable data (format change): halt rather than retry forever.
-reset();
+await reset();
 answer = () => ({ status: 200, body: 'something else' });
 c = await refreshTLE();
 check('unusable 200 response halts', !!c.halted, c.error);

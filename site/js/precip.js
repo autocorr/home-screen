@@ -14,9 +14,8 @@ import { installProtocol, openMeteoForecastLayer } from './map/openmeteo.js';
 import { installIemProtocol, iemRadarLayer } from './map/iem.js';
 import { colorScaleOverrides, REFLECTIVITY_SCALE } from './map/colormaps.js';
 import { CLUTTER } from './data/clutter.js';
-import {
-  clearDiskCache, diskCacheStats, createBlockCache, diskCacheAvailable, getStoragePref, setStoragePref, DISK_MAX_MB, DISK_MAX_AGE_H,
-} from './map/storage.js';
+import { createBlockCache } from './map/storage.js';
+import { askStorage, useDisk } from './storage.js';
 
 const PREFS_KEY = 'precip:v1';
 const PLAY_STEP_MS = 700;
@@ -101,7 +100,7 @@ function status(msg, isError = false) {
 const layerAt = (t) => layers.find((l) => view?.frameOf(l.id, t));
 
 function describe() {
-  const cache = getStoragePref() === 'disk' ? 'disk cache' : 'memory cache';
+  const cache = useDisk() ? 'disk cache' : 'memory cache';
   let data, detail = '';
   if (isRadar()) {
     // Kept short enough for one line on a phone, like the precip line, so the section
@@ -294,28 +293,7 @@ async function poll() {
   show(atNow || keep < 0 ? nowIndex() : keep);
 }
 
-// ---------- loading & storage permission ----------
-
-function askStorage() {
-  return new Promise((resolve) => {
-    if (getStoragePref() || !diskCacheAvailable()) { resolve(); return; }
-    els.consent.hidden = false;
-    els.consent.innerHTML =
-      `<p><b>Store downloaded map data on disk?</b> Forecast blocks are kept in this browser's ` +
-      `Cache Storage (up to ${DISK_MAX_MB} MB, entries older than ${DISK_MAX_AGE_H} h are removed) so reloading ` +
-      `the page doesn't download them again. Your browser may also ask to allow persistent storage. ` +
-      `Change this any time in ⚙ Settings.</p>` +
-      `<div class="set-actions"><button type="button" class="btn" data-pref="memory">Memory only</button>` +
-      `<button type="button" class="btn btn-primary" data-pref="disk">Allow disk cache</button></div>`;
-    els.consent.addEventListener('click', async (e) => {
-      const b = e.target.closest('button[data-pref]');
-      if (!b) return;
-      els.consent.hidden = true;
-      await setStoragePref(b.dataset.pref);
-      resolve();
-    }, { once: false });
-  });
-}
+// ---------- loading ----------
 
 async function load() {
   loading ??= (async () => {
@@ -323,7 +301,7 @@ async function load() {
       status('The map needs WebGL2, which this browser has disabled or lacks.', true);
       return;  // not retried: `loading` stays resolved
     }
-    await askStorage();
+    await askStorage(els.consent);   // shared with the satellites and radar (storage.js)
     status('Loading map…');
     [maplibregl, wml] = await Promise.all([
       import('../vendor/maplibre-gl/maplibre-gl.mjs'),
@@ -415,31 +393,4 @@ export function rerender() {
   if (!view) return;
   view.setBasemap(prefs.basemap, isDark());
   renderLegendNow();
-}
-
-/** Map cache controls in the Settings dialog. */
-export function initPrecipSettings(dialog) {
-  const segEl = dialog.querySelector('#set-map-cache');
-  const usage = dialog.querySelector('#set-map-usage');
-  const sync = async () => {
-    const pref = getStoragePref();
-    segEl.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.pref === pref)));
-    if (!diskCacheAvailable()) { usage.textContent = 'Cache Storage is unavailable here (needs https or localhost).'; return; }
-    const [{ bytes, entries }, persisted] = await Promise.all([
-      diskCacheStats().catch(() => ({ bytes: 0, entries: 0 })),
-      navigator.storage?.persisted?.().catch(() => false) ?? false,
-    ]);
-    usage.textContent = `On disk: ${(bytes / 2 ** 20).toFixed(1)} MB in ${entries} blocks (limit ${DISK_MAX_MB} MB, ` +
-      `${DISK_MAX_AGE_H} h). Persistent storage: ${persisted ? 'granted' : 'not granted'}.` +
-      (pref === null ? ' Not chosen yet: you will be asked when the map first loads.' : '');
-  };
-  segEl.addEventListener('click', async (e) => {
-    const b = e.target.closest('button[data-pref]');
-    if (!b) return;
-    await setStoragePref(b.dataset.pref);
-    await sync();
-    usage.textContent += ' Reload to apply.';
-  });
-  dialog.querySelector('#set-map-clear').addEventListener('click', async () => { await clearDiskCache(); sync(); });
-  document.getElementById('open-settings').addEventListener('click', sync);
 }

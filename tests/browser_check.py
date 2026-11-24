@@ -105,14 +105,21 @@ with sync_playwright() as p:
             check("satellites: prompt to press Update", "Press Update" in pg.inner_text("#sat-status"),
                   pg.inner_text("#sat-status"))
             pg.locator("#sat-update").scroll_into_view_if_needed(); pg.click("#sat-update")
+            # The first Update asks where to keep data (shared with the map and radar).
+            pg.wait_for_selector("#sat-consent:not([hidden]) button[data-pref=disk]", timeout=5000)
+            check("satellites: Update asks about storage first", not tle_reqs and pg.is_visible("#sat-consent"))
+            pg.click("#sat-consent button[data-pref=disk]")
             pg.wait_for_function("document.querySelector('#sat-el .uplot')", timeout=15000)
             check("satellites: Update disabled after a download", pg.is_disabled("#sat-update") and
                   "again in 12" in (pg.get_attribute("#sat-update", "title") or ""), pg.get_attribute("#sat-update", "title"))
             n_tle = len(tle_reqs)
             pg.eval_on_selector("#sat-update", "(b) => { b.disabled = false; b.click(); }"); pg.wait_for_timeout(300)
             check("satellites: Update within 12 h sends nothing", len(tle_reqs) == n_tle, f"{n_tle} -> {len(tle_reqs)}")
-            check("satellite elements cached", pg.evaluate(
-                "Object.keys(JSON.parse(localStorage.getItem('sats:gp:v3')).sats).length") >= 100)
+            check("satellite elements stored in Cache Storage", pg.evaluate(
+                "caches.open('sats-v1').then(c => c.match(new URL('sats/gp.json', location.href).href))"
+                ".then(r => r ? r.json() : {sats: {}}).then(e => Object.keys(e.sats).length)") >= 100)
+            check("no elements in localStorage", pg.evaluate(
+                "Object.keys(localStorage).every(k => !/^sats:gp/.test(k) || !JSON.parse(localStorage.getItem(k)).sats)"))
             check("satellite status", "CelesTrak" in pg.inner_text("#sat-status") and
                   "error" not in (pg.get_attribute("#sat-status", "class") or ""), pg.inner_text("#sat-status"))
             pg.locator("#sat-polar").scroll_into_view_if_needed()
@@ -180,7 +187,7 @@ with sync_playwright() as p:
             check("pass click shows it on the chart", "sel" in (first.get_attribute("class") or ""))
             pg.click("#sat-now") if pg.is_visible("#sat-now") else None
 
-            # Precipitation map: storage permission asked once, then model data drawn.
+            # Precipitation map: the storage choice made in the satellites applies, then model data drawn.
             # MapLibre needs WebGL2, which headless Firefox lacks; there only check
             # that the failure is reported in the section rather than breaking the page.
             webgl2 = pg.evaluate("!!document.createElement('canvas').getContext('webgl2')")
@@ -190,9 +197,8 @@ with sync_playwright() as p:
                 print("  SKIP  precip map rendering (no WebGL2 in this browser)")
                 check("map reports missing WebGL2", "WebGL2" in pg.inner_text("#pm-status"), pg.inner_text("#pm-status")[:80])
             else:
-                pg.wait_for_selector("#pm-consent:not([hidden]) button[data-pref=memory]", timeout=10000)
-                check("map asks before using disk storage", pg.is_visible("#pm-consent"))
-                pg.click("#pm-consent button[data-pref=memory]")
+                pg.wait_for_timeout(500)
+                check("map doesn't ask again", not pg.is_visible("#pm-consent"))
                 try:
                     pg.wait_for_function("/run \\d\\dZ/.test(document.querySelector('#pm-status').textContent)", timeout=30000)
                     pg.wait_for_function("/Socorro/.test(document.querySelector('#pm-value').textContent)", timeout=30000)
@@ -201,7 +207,7 @@ with sync_playwright() as p:
                 check("precip map loads a model run", "run" in pg.inner_text("#pm-status"), pg.inner_text("#pm-status"))
                 check("precip map reads value at Socorro", "Socorro" in pg.inner_text("#pm-value"), pg.inner_text("#pm-value"))
                 check("precip map has a timeline", int(pg.get_attribute("#pm-slider", "max")) >= 10)
-                check("map uses memory cache when declined", not pg.evaluate("caches.has('map-blocks-v1')"))
+                check("map uses the disk cache", pg.evaluate("caches.has('map-blocks-v1')"))
                 t_before = pg.inner_text("#pm-time")
                 pg.focus("#pm-slider"); pg.keyboard.press("ArrowRight"); pg.wait_for_timeout(300)
                 check("map timeline steps", pg.inner_text("#pm-time") != t_before,
@@ -230,6 +236,9 @@ with sync_playwright() as p:
                 radar_h = pg.evaluate("document.querySelector('#precip').getBoundingClientRect().height")
                 check("section height same in radar view", abs(radar_h - sec_h) < 0.5, f"{sec_h} -> {radar_h}")
                 check("radar legend in dBZ", pg.inner_text("#pm-legend-unit") == "dBZ")
+                pg.wait_for_timeout(500)   # tiles are stored after they are drawn
+                check("radar tiles stored in Cache Storage", pg.evaluate(
+                    "caches.open('radar-tiles-v1').then(c => c.keys()).then(k => k.length)") > 0)
                 pg.click("#pm-next")
                 pg.wait_for_timeout(500)
                 check("radar steps from observed to forecast", "RRFS" in pg.inner_text("#pm-time"), pg.inner_text("#pm-time"))
