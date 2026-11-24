@@ -155,7 +155,7 @@ every 60 s, and only stretches near or above the horizon are sampled at 15 s. Th
 0.5 M SGP4 steps for 48 h of the whole group, recomputed every 10 minutes.
 Computation and redraws pause while the section is collapsed, hidden in Settings, or the
 tab is in the background. Showing it again recomputes if the results are more than
-10 minutes old. Orbital elements keep refreshing in the background (every 6 h). Pass times agree
+10 minutes old. Orbital elements are only downloaded when you press **Update** (see below). Pass times agree
 with Skyfield to within a few seconds.
 
 **Fetching and caching** (`site/js/tle.js`), following CelesTrak's
@@ -165,16 +165,18 @@ with Skyfield to within a few seconds.
   newer (6-digit) catalog numbers, and JSON is ~3× larger.
 - One request for the `visual` group plus one per `SATS.extra` id that the group doesn't
   include. The browser asks for gzip/brotli compression itself.
-- The elements are kept in localStorage (`sats:gp:v3`) and downloaded again when they are
-  older than 6 h (`SATS.refreshH`). CelesTrak updates GP data every 2 h and asks for at
-  most one download per update. Each attempt is recorded before it is sent, so open tabs
-  share it rather than each downloading.
+- **Only on request.** Opening the page sends nothing to CelesTrak: the section shows the
+  elements already kept in localStorage (`sats:gp:v3`), or asks you to press **Update**.
+  Update is disabled for 12 h after a successful download (`SATS.minUpdateH`; CelesTrak
+  updates GP data every 2 h and asks for at most one download per update), and its tooltip
+  and the status line's tooltip say when it is available again. Each attempt is recorded before it is
+  sent, so other open tabs see it, pick up the new elements and don't download their own.
 - **Non-200 answers.** The policy asks clients to stop querying and tell a human.
-  - 500/503: no further requests for 30 min (`SATS.retryMin`; the policy asks for at least 15).
-  - Any other status (a 403 block, a 404, a redirect, or a 200 with no usable data): automatic
-    downloads stop completely, in every tab and across reloads. The status line shows
-    CelesTrak's explanation with a **Retry** button, which allows one new attempt.
-  - Network failures (no answer at all) are retried after 30 min.
+  - 500/503: Update is disabled for 30 min (`SATS.retryMin`; the policy asks for at least 15).
+  - Any other status (a 403 block, a 404, a redirect, or a 200 with no usable data): downloads
+    stop, in every tab and across reloads. The status line shows CelesTrak's explanation and
+    the button becomes **Retry**, which clears the stop and allows one new attempt.
+  - Network failures (no answer at all): Update is disabled for 30 min.
   - The page keeps using the elements it already has. The status line also turns red when
     the ISS elements are more than 14 days old.
 - `scripts/build_satmags.py` also uses CSV and stops at the first error. Don't run it more
@@ -201,7 +203,7 @@ diffusely reflecting sphere and scales that for the actual range and phase angle
 
 **ISS week table.** The ISS (`SATS.week`) is propagated 7 days ahead. Times several days
 out can be off by up to a minute or so, because of reboosts and changes in drag; the
-elements are refreshed every 6 h, so this improves as the date approaches.
+pressing Update as the date approaches improves them.
 
 **Sky view.** North is up and east is on the left, as seen lying on your back with your
 head to the north. The disk's colour follows the Sun's elevation. Star positions are J2000
@@ -219,7 +221,7 @@ names, and names for the brightest stars.
 | Magnitudes `js/data/satmags.js` | 1.4 kB | Same |
 | satellite.js | 24 kB (11 kB) | Same |
 | `sats.js`, `sats-worker.js`, `tle.js` | 46 kB (17 kB) | Same |
-| CelesTrak `visual` group + 1 single-satellite request (CSV) | ~22 kB + 0.3 kB, every 6 h (compressed in transfer) | ~55 kB of elements in localStorage |
+| CelesTrak `visual` group + 1 single-satellite request (CSV) | ~22 kB + 0.3 kB, only when Update is pressed, at most every 12 h (compressed in transfer) | ~55 kB of elements in localStorage |
 
 The star catalogue is part of the page's code, so after the first load it costs only a
 revalidation request. It uses no localStorage or Cache Storage.
@@ -442,8 +444,8 @@ node tests/clutter_check.mjs                      # radar clutter correction and
 ```
 
 The checks cover: no horizontal scroll, no element overflowing its box, clocks
-ticking, all charts drawn, tap/hover cursor sync, the satellite section (elements fetched
-once and cached, stars drawn, chart cursor moving the sky view, passes sorted by brightness,
+ticking, all charts drawn, tap/hover cursor sync, the satellite section (nothing
+downloaded on load, Update fetching once and caching, a second Update within 12 h refused, stars drawn, chart cursor moving the sky view, passes sorted by brightness,
 the magnitude cutoff, panning the chart, showing a pass, the ISS week table, no computation while collapsed), section collapse and order
 persisting, theme, the weather cache being reused on reload, the precipitation map
 (storage prompt, model run loaded, value at Socorro, timeline), the radar view (scans and

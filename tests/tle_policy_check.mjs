@@ -1,7 +1,7 @@
 // Checks that site/js/tle.js follows CelesTrak's usage policy, with fetch and
 // localStorage stubbed (no network):   node tests/tle_policy_check.mjs
 // https://celestrak.org/usage-policy.php: CSV format, at most one download per 2 h
-// update, stop on any non-200 answer, wait at least 15 min after a 5xx.
+// update (Update is refused for 12 h after a download), stop on any non-200 answer, wait at least 15 min after a 5xx.
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 
@@ -25,7 +25,7 @@ const row = (id, name) => `"${name}",1998-067A,2026-11-20T12:00:00.000000,15.498
 const CSV = [HEAD, row(25544, 'ISS (ZARYA)'), ...Array.from({ length: 12 }, (_, i) => row(40000 + i, `SAT, ${i}`))].join('\r\n') + '\r\n';
 const EXTRA_CSV = [HEAD, row(53807, 'BLUEWALKER 3')].join('\n');
 
-const { refreshTLE, tleNeedsRefresh, clearTLEHalt, parseOMMcsv, cachedTLE } = await import('../site/js/tle.js');
+const { refreshTLE, updateBlocked, clearTLEHalt, parseOMMcsv, cachedTLE } = await import('../site/js/tle.js');
 const { SATS } = await import('../site/js/config.js');
 
 let fails = 0;
@@ -54,21 +54,25 @@ answer = (url) => ({ status: 200, body: url.includes('CATNR') ? EXTRA_CSV : CSV 
 let c = await refreshTLE();
 check('downloads the group and extras as CSV', calls.length === 1 + SATS.extra.length && calls.every((u) => u.includes('FORMAT=csv')), calls.join(' '));
 check('stores the elements', Object.keys(c.sats).length === 14 && !c.error && !c.halted);
-check('no download within the refresh interval', !tleNeedsRefresh(cachedTLE(), Date.now() + 2 * H));
-check('downloads again after it', tleNeedsRefresh(cachedTLE(), Date.now() + SATS.refreshH * H + 1));
-check('refresh interval is at least the 2 h update cycle', SATS.refreshH >= 2);
+check('Update within 12 h is refused', updateBlocked(cachedTLE(), Date.now() + 11.9 * H)?.reason === 'recent');
+calls.length = 0;
+await refreshTLE();
+check('…and refreshTLE itself sends nothing', calls.length === 0);
+check('Update allowed after 12 h', !updateBlocked(cachedTLE(), Date.now() + SATS.minUpdateH * H + 1));
+check('minimum update interval is at least 12 h', SATS.minUpdateH >= 12);
+check('…and an empty cache may download', !updateBlocked(null));
 
 // 403: stop everything until a human clears it.
 reset();
 answer = () => ({ status: 403, body: '<html><body><h1>Forbidden</h1><p>Your IP has been blocked because...</p></body></html>' });
 c = await refreshTLE();
-check('403 halts automatic downloads', c.halted?.status === 403 && /blocked because/.test(c.halted.message), c.error);
-check('…even days later', !tleNeedsRefresh(cachedTLE(), Date.now() + 72 * H));
+check('403 halts downloads', c.halted?.status === 403 && /blocked because/.test(c.halted.message), c.error);
+check('…even days later', !!updateBlocked(cachedTLE(), Date.now() + 72 * H));
 calls.length = 0;
 await refreshTLE();
 check('…and refreshTLE itself sends nothing', calls.length === 0);
 clearTLEHalt();
-check('Retry clears the halt', tleNeedsRefresh(cachedTLE()));
+check('Retry clears the halt', !updateBlocked(cachedTLE()));
 
 // 404 on an extra id: keep the group, stop querying.
 reset();
@@ -81,14 +85,14 @@ reset();
 answer = () => ({ status: 503, body: 'busy' });
 c = await refreshTLE();
 check('503 does not halt', !c.halted && /503/.test(c.error));
-check('…and waits at least 15 min', !tleNeedsRefresh(cachedTLE(), Date.now() + 14.9 * 60e3) &&
-  tleNeedsRefresh(cachedTLE(), Date.now() + Math.max(15, SATS.retryMin) * 60e3 + 1));
+check('…and waits at least 15 min', !!updateBlocked(cachedTLE(), Date.now() + 14.9 * 60e3) &&
+  !updateBlocked(cachedTLE(), Date.now() + Math.max(15, SATS.retryMin) * 60e3 + 1));
 
 // Network failure (no answer): retried later, not halted.
 reset();
 answer = () => ({ network: true });
 c = await refreshTLE();
-check('network failure retries later', !c.halted && !tleNeedsRefresh(cachedTLE()) && tleNeedsRefresh(cachedTLE(), Date.now() + 31 * 60e3));
+check('network failure retries later', !c.halted && !!updateBlocked(cachedTLE()) && !updateBlocked(cachedTLE(), Date.now() + 31 * 60e3));
 
 // Redirect: use the data, but stop until the URL is fixed.
 reset();

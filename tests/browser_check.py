@@ -99,8 +99,18 @@ with sync_playwright() as p:
             pg.wait_for_timeout(250)
             check("sky cursor -> polar markers", pg.locator("#sky-polar circle.cursor-pos").count() > 0)
 
-            # Satellites: elements fetched and cached, sky view drawn, chart cursor drives it.
+            # Satellites: nothing downloaded on load; Update fetches and caches the elements,
+            # then refuses a second download; sky view drawn, chart cursor drives it.
+            check("satellites: no CelesTrak request on load", not tle_reqs, "; ".join(tle_reqs)[:200])
+            check("satellites: prompt to press Update", "Press Update" in pg.inner_text("#sat-status"),
+                  pg.inner_text("#sat-status"))
+            pg.locator("#sat-update").scroll_into_view_if_needed(); pg.click("#sat-update")
             pg.wait_for_function("document.querySelector('#sat-el .uplot')", timeout=15000)
+            check("satellites: Update disabled after a download", pg.is_disabled("#sat-update") and
+                  "again in 12" in (pg.get_attribute("#sat-update", "title") or ""), pg.get_attribute("#sat-update", "title"))
+            n_tle = len(tle_reqs)
+            pg.eval_on_selector("#sat-update", "(b) => { b.disabled = false; b.click(); }"); pg.wait_for_timeout(300)
+            check("satellites: Update within 12 h sends nothing", len(tle_reqs) == n_tle, f"{n_tle} -> {len(tle_reqs)}")
             check("satellite elements cached", pg.evaluate(
                 "Object.keys(JSON.parse(localStorage.getItem('sats:gp:v3')).sats).length") >= 100)
             check("satellite status", "CelesTrak" in pg.inner_text("#sat-status") and
@@ -365,7 +375,7 @@ with sync_playwright() as p:
             check("section order persists", order.index("links") < order.index("calc"), ",".join(order))
             check("theme override persists", pg.evaluate("document.documentElement.dataset.theme") in ("light", "dark"))
             check("weather served from cache on reload", not wx_reqs, f"{len(wx_reqs)} data requests")
-            check("satellite elements fetched once", len(tle_reqs) <= 2, "; ".join(tle_reqs)[:200])
+            check("satellite elements fetched once (not on reload)", len(tle_reqs) <= 2, "; ".join(tle_reqs)[:200])
             check("CelesTrak never contacted (all requests mocked)", tle_reqs and all(u in mocked for u in tle_reqs),
                   f"{len(tle_reqs)} requests, {len(mocked)} mocked")
             check("status shows model run", "run" in pg.inner_text("#wx-status"), pg.inner_text("#wx-status"))

@@ -1,19 +1,24 @@
 // Orbital elements (GP / OMM data) from CelesTrak, cached in localStorage.
 //
+// Downloads happen only when someone presses Update in the satellites section; opening
+// the page sends nothing and shows whatever elements localStorage already holds.
+//
 // CelesTrak's usage policy (https://celestrak.org/usage-policy.php):
-// - GP data is updated every 2 hours; download it at most once per update. We refresh
-//   after `SATS.refreshH` (6) hours, and an attempt is shared by every open tab.
+// - GP data is updated every 2 hours; download it at most once per update. Update is
+//   refused for `SATS.minUpdateH` (12) hours after a successful download, and an
+//   attempt is shared by every open tab.
 // - Use FORMAT=csv: legacy FORMAT=tle is no longer served for all objects (6-digit
 //   catalog numbers have no TLE) and JSON is ~3x larger.
 // - Software must stop querying on any non-200 response and report it to a human.
-//   So: a 5xx answer pauses downloads for `SATS.retryMin` (30, policy minimum 15)
-//   minutes; any other non-200 answer (403 block, 404, a redirect) stops automatic
-//   downloads entirely until someone presses Retry in the status line. A network
-//   failure (no answer at all) is retried after `SATS.retryMin` minutes.
+//   So: after a 5xx answer or a network failure (no answer at all), Update is refused
+//   for `SATS.retryMin` (30, policy minimum 15) minutes; any other non-200 answer (403
+//   block, 404, a redirect) is shown with CelesTrak's explanation, and only an explicit
+//   Retry (clearTLEHalt) allows another attempt.
 // Compression is requested by the browser automatically (gzip/brotli).
 import { SATS } from './config.js';
 
-const KEY = 'sats:gp:v3';
+export const TLE_KEY = 'sats:gp:v3';
+const KEY = TLE_KEY;
 const GP = 'https://celestrak.org/NORAD/elements/gp.php';
 // OMM fields kept per object: what satellite.js's json2satrec needs.
 const FIELDS = ['OBJECT_NAME', 'NORAD_CAT_ID', 'EPOCH', 'MEAN_MOTION', 'ECCENTRICITY', 'INCLINATION',
@@ -92,28 +97,34 @@ async function getText(url) {
   return text;
 }
 
-const wanted = () => `${SATS.group}|${SATS.extra.join(',')}`;
-
-/** Cached elements, or null.
- *  { fetched, tried, error, halted, wanted, sats: {catnr: {name, omm}} }
- *  `halted` = { status, message, at }: CelesTrak refused; no automatic requests. */
+/** Cached state, or null:
+ *  { fetched, tried, error, halted, sats: {catnr: {name, omm}} }
+ *  `halted` = { status, message, at }: CelesTrak refused; nothing is sent until Retry. */
 export const cachedTLE = () => load();
 
-/** Whether to download now: stale or the configured set changed, and allowed to try. */
-export function tleNeedsRefresh(c = load(), now = Date.now()) {
-  if (c?.halted) return false;
-  if (c?.tried && now - c.tried < Math.max(15, SATS.retryMin) * 60e3) return false;
-  if (!c?.sats || !Object.keys(c.sats).length) return true;
-  return now - (c.fetched || 0) > SATS.refreshH * 3600e3 || c.wanted !== wanted();
+/**
+ * Why Update may not download now, or null if it may:
+ *  { reason: 'halted' } | { reason: 'recent' | 'retry', until: ms }
+ *  'recent' = elements downloaded less than SATS.minUpdateH ago; 'retry' = a failed (or
+ *  in-progress, in another tab) attempt less than SATS.retryMin ago.
+ */
+export function updateBlocked(c = load(), now = Date.now()) {
+  if (c?.halted) return { reason: 'halted' };
+  const retry = c?.tried ? c.tried + Math.max(15, SATS.retryMin) * 60e3 : 0;
+  if (now < retry) return { reason: 'retry', until: retry };
+  const recent = c?.fetched && c.sats && Object.keys(c.sats).length ? c.fetched + SATS.minUpdateH * 3600e3 : 0;
+  if (now < recent) return { reason: 'recent', until: recent };
+  return null;
 }
 
 /**
- * Download the group and the extras. Resolves to the updated cache; on failure the
- * previous elements are kept and `error` (and, for refusals, `halted`) is set.
+ * Download the group and the extras, unless updateBlocked(). Resolves to the updated
+ * cache; on failure the previous elements are kept and `error` (and, for refusals,
+ * `halted`) is set.
  */
 export async function refreshTLE() {
   const c = load() || { sats: {} };
-  if (c.halted) return c;
+  if (updateBlocked(c)) return c;
   c.tried = Date.now();
   save(c);  // marks the attempt so other tabs don't start their own
   let got = null;
@@ -134,11 +145,11 @@ export async function refreshTLE() {
     for (const id of SATS.extra.filter((x) => !got[x])) {
       Object.assign(got, parseOMMcsv(await getText(`${GP}?CATNR=${id}&FORMAT=csv`)));
     }
-    Object.assign(c, { sats: got, wanted: wanted(), fetched: Date.now(), tried: null, error: null });
+    Object.assign(c, { sats: got, fetched: Date.now(), tried: null, error: null });
   } catch (e) {
     if (got && Object.keys(got).length >= 10) {
       // The group arrived; keep it even though a later request was refused.
-      Object.assign(c, { sats: { ...c.sats, ...got }, wanted: wanted(), fetched: Date.now() });
+      Object.assign(c, { sats: { ...c.sats, ...got }, fetched: Date.now() });
     }
     c.error = e.message;
     if (e instanceof HttpError && e.status < 500) {
