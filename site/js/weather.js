@@ -1,5 +1,5 @@
 // Weather + air quality for Socorro from Open-Meteo, cached in localStorage.
-import { SOCORRO, TZ, WX_MAX_AGE_MIN } from './config.js';
+import { SOCORRO, TZ, WX_MAX_AGE_MIN, WX_MIN_UPDATE_MIN } from './config.js';
 import { makeChart, bars, fmtTime } from './charts.js';
 
 const CACHE_KEY = 'wx:v3';
@@ -52,11 +52,14 @@ export function apiCost() {
 }
 
 // ---------- cache ----------
-// Responses live in localStorage with the URL they were fetched with. Rather
-// than a fixed expiry, we ask Open-Meteo when its models last published a run
-// (static meta.json files: tiny, CORS-enabled, not rate-limited) and refetch a
-// dataset only when a run newer than our copy exists. Fallbacks: if the
-// metadata can't be read, refetch after WX_MAX_AGE_MIN; always after MAX_AGE_H.
+// Responses live in localStorage with the URL they were fetched with. Nothing is
+// downloaded when the page opens: the section shows what localStorage holds, and
+// only the Update button asks Open-Meteo for more. Update first reads when its
+// models last published a run (static meta.json files: tiny, CORS-enabled, not
+// rate-limited) and refetches a dataset only when a run newer than our copy
+// exists. Fallbacks: if the metadata can't be read, refetch data older than
+// WX_MAX_AGE_MIN; always refetch after MAX_AGE_H. After an Update (in any tab),
+// the button waits WX_MIN_UPDATE_MIN minutes; `checked` in the cache records it.
 const store = {
   get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } },
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* ignore */ } },
@@ -69,7 +72,6 @@ const RUN_SOURCES = {
     models: ['ncep_rrfs_conus', 'ncep_nbm_conus', 'ncep_gfs013'] },
   air: { host: 'air-quality-api.open-meteo.com', models: ['cams_global'] },
 };
-const META_CHECK_MIN = 5;  // don't poll metadata more often than this
 const MAX_AGE_H = 6;
 
 async function fetchJSON(url) {
@@ -91,17 +93,14 @@ async function latestRun({ host, models }) {
   return ok.length ? ok.reduce((a, b) => (b.avail > a.avail ? b : a)) : null;
 }
 
-let lastMetaCheck = 0;
 /** Which datasets need refetching: { forecast: bool, air: bool, runs }. */
-async function whatIsStale(c, force) {
+async function whatIsStale(c) {
   const u = urls();
-  const need = { forecast: force, air: force, runs: {} };
+  const need = { forecast: false, air: false, runs: {} };
   const ageMin = (t) => (Date.now() - (t ?? 0)) / 60e3;
   const missing = (k) => !c?.[k] || c.urls?.[k] !== u[k] || ageMin(c.fetched?.[k]) > MAX_AGE_H * 60;
   need.forecast ||= missing('forecast');
   need.air ||= missing('air');
-  if (!force && Date.now() - lastMetaCheck < META_CHECK_MIN * 60e3) return need;
-  lastMetaCheck = Date.now();
   // Always read run metadata (it also labels the status line), in parallel.
   const runs = await Promise.all(['forecast', 'air'].map((k) => latestRun(RUN_SOURCES[k]).catch(() => null)));
   ['forecast', 'air'].forEach((k, i) => {
@@ -126,10 +125,24 @@ async function fetchStale(need) {
   const failed = res.find((r) => r.status === 'rejected');
   if (!next.forecast) throw failed?.reason ?? new Error('no data');
   next.fetchedAt = next.fetched.forecast;
+  next.error = failed ? `air quality: ${failed.reason?.message ?? failed.reason}` : null;
   store.set(CACHE_KEY, next);
   if (failed) console.warn('Partial weather update:', failed.reason);
   return next;
 }
+
+/** When Update is available again (ms), or null if it is now. */
+function updateBlockedUntil(c = store.get(CACHE_KEY)) {
+  const until = (c?.checked ?? 0) + WX_MIN_UPDATE_MIN * 60e3;
+  return Date.now() < until ? until : null;
+}
+
+/** Merge `fields` into the stored cache (whatever another tab wrote meanwhile). */
+const patchStore = (fields) => {
+  const c = { ...store.get(CACHE_KEY), ...fields };
+  store.set(CACHE_KEY, c);
+  return c;
+};
 
 // ---------- units ----------
 const UNITS = {
@@ -299,44 +312,54 @@ export function initWeather(root) {
     // The x-scale range function reads rangeKey, so any setScale re-applies it.
     charts.forEach((c) => { const [min, max] = xRange(current); c.setScale('x', { min, max }); });
   });
-  root.querySelector('#wx-refresh').addEventListener('click', () => refresh(root, true));
+  root.querySelector('#wx-update').addEventListener('click', () => update(root));
 
-  current = store.get(CACHE_KEY);
-  if (current?.forecast) render(root); else current = null;
-  refresh(root, false);
-  // Re-check staleness periodically and whenever the tab comes back.
-  setInterval(() => refresh(root, false), 5 * 60e3);
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') refresh(root, false);
-  });
-  setInterval(() => updateStatus(root), 30e3);
+  // Nothing is downloaded on load: only what localStorage already holds is shown.
+  syncFromStore(root);
+  setInterval(() => { if (!inflight) updateStatus(root); }, 30e3);  // ages and the Update button's state
+  // Another tab updated (or cleared the cache): show its data.
+  window.addEventListener('storage', (e) => { if (e.key === CACHE_KEY && !inflight) syncFromStore(root); });
+}
+
+/** Show the data in localStorage (if new to this tab) and its state. */
+function syncFromStore(root) {
+  const c = store.get(CACHE_KEY);
+  if (c?.forecast && c.fetchedAt !== current?.fetchedAt) { current = c; render(root); return; }
+  if (!c?.forecast) {
+    // Nothing stored (or the cache was cleared): empty the section.
+    current = null;
+    charts.forEach((ch) => ch.destroy()); charts = [];
+    ['#wx-now', '#wx-daily', '#wx-charts'].forEach((s) => { root.querySelector(s).innerHTML = ''; });
+  } else current = c;
+  updateStatus(root);
 }
 
 export function rerender(root) { if (current) render(root); }
 
 let inflight = null;
-async function refresh(root, force) {
-  if (inflight) return inflight;
+/** The Update button: check for newer model runs and download only what changed. */
+async function update(root) {
+  if (inflight || updateBlockedUntil()) { if (!inflight) syncFromStore(root); return; }
   const status = root.querySelector('#wx-status');
+  // Recorded before anything is sent, so other tabs wait too.
+  patchStore({ checked: Date.now() });
   inflight = (async () => {
-    const need = await whatIsStale(current, force);
+    status.classList.remove('error');
+    status.textContent = 'Checking Open-Meteo for newer model runs…';
+    syncButton(root);
+    const need = await whatIsStale(current);
     if (!need.forecast && !need.air) {
       // Nothing new upstream; just remember what we learned about model runs.
-      if (Object.keys(need.runs).length && current) {
-        current.runs = { ...current.runs, ...need.runs };
-        store.set(CACHE_KEY, current);
-        updateStatus(root);
-      }
+      current = patchStore({ runs: { ...current?.runs, ...need.runs }, error: null });
       return;
     }
-    status.textContent = 'Updating…';
+    status.textContent = 'Downloading the forecast from Open-Meteo…';
     current = await fetchStale(need);
     render(root);
   })().catch((err) => {
-    status.textContent = current
-      ? `Update failed (${err.message}); showing data from ${ago(current.fetchedAt)}.`
-      : `Could not load weather: ${err.message}`;
-  }).finally(() => { inflight = null; });
+    const c = patchStore({ error: err.message });
+    if (c.forecast) current = c;
+  }).finally(() => { inflight = null; updateStatus(root); });
   return inflight;
 }
 
@@ -344,6 +367,17 @@ const ago = (ms) => {
   const m = Math.round((Date.now() - ms) / 60e3);
   return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : `${Math.round(m / 60)} h ago`;
 };
+const fmtWait = (ms) => `${Math.max(1, Math.ceil(ms / 60e3))} min`;
+
+/** Enable Update only when allowed; say why not in its tooltip. */
+function syncButton(root) {
+  const b = root.querySelector('#wx-update');
+  const until = updateBlockedUntil();
+  b.disabled = Boolean(inflight || until);
+  b.title = inflight ? 'Updating…'
+    : until ? `Checked less than ${WX_MIN_UPDATE_MIN} min ago; Update is available again in ${fmtWait(until - Date.now())}`
+    : 'Check Open-Meteo for newer model runs and download what changed';
+}
 
 const RUN_NAMES = {
   ncep_rrfs_conus: 'RRFS', ncep_nbm_conus: 'NBM', ncep_gfs013: 'GFS',
@@ -352,15 +386,29 @@ const RUN_NAMES = {
 const runLabel = (r) => r && `${RUN_NAMES[r.model] ?? r.model} ${new Date(r.init * 1000).toISOString().slice(11, 13)}Z`;
 
 function updateStatus(root) {
-  if (!current) return;
+  syncButton(root);
+  if (inflight) return;
   const el = root.querySelector('#wx-status');
+  const stored = store.get(CACHE_KEY);
+  const err = stored?.error;
+  const until = updateBlockedUntil(stored);
+  const wait = until ? ` Update is available again in ${fmtWait(until - Date.now())}.` : '';
+  el.classList.toggle('error', Boolean(err));
+  if (!current) {
+    el.textContent = err ? `Couldn't download the weather from Open-Meteo: ${err}.${wait || ' Press Update to try again.'}`
+      : `No weather data is stored in this browser.${wait || ' Press Update to download it from Open-Meteo.'}`;
+    el.title = '';
+    return;
+  }
   const run = runLabel(current.runs?.forecast);
-  el.textContent = `Open-Meteo · fetched ${ago(current.fetchedAt)}${run ? ` · newest run ${run}` : ''}`;
+  const checked = stored?.checked > current.fetchedAt + 60e3 ? `, checked ${ago(stored.checked)}` : '';
+  el.textContent = `Open-Meteo · fetched ${ago(current.fetchedAt)}${checked}${run ? ` · newest run ${run}` : ''}` +
+    (err ? ` · last update failed: ${err}` : '');
   const est = apiCost();
   const cost = (k) => (current.cost?.[k] ?? est[k]).toFixed(1);
-  el.title = `Refetched when Open-Meteo publishes a newer model run (checked every ${META_CHECK_MIN} min)` +
+  el.title = `Update downloads only when Open-Meteo has published a newer model run` +
     `${current.runs?.air ? `; air quality: ${runLabel(current.runs.air)}` : ''}. ` +
-    `Last request cost: forecast ${cost('forecast')} + air ${cost('air')} API calls.`;
+    `Last request cost: forecast ${cost('forecast')} + air ${cost('air')} API calls.${wait}`;
 }
 
 function syncButtons(root) {

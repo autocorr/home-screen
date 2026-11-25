@@ -8,9 +8,6 @@
   <meta name="theme-color" content="#f5f0e6" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📡</text></svg>">
-  <link rel="preconnect" href="https://api.open-meteo.com" crossorigin>
-  <link rel="preconnect" href="https://air-quality-api.open-meteo.com" crossorigin>
-  <link rel="preconnect" href="https://celestrak.org" crossorigin>
   <script>
     // Apply a saved theme override before first paint (avoids a flash).
     try { const t = JSON.parse(localStorage.getItem('settings:v1'))?.theme;
@@ -143,7 +140,7 @@
           </div>
         </div>
       </div>
-      <div class="sat-update">
+      <div class="update-row">
         <button type="button" class="btn" id="sat-update">Update</button>
         <p id="sat-status" class="note" aria-live="polite"></p>
       </div>
@@ -158,14 +155,16 @@
         <div class="seg" id="wx-units" role="group" aria-label="Units">
           <button data-units="imperial">°F</button><button data-units="metric">°C</button>
         </div>
-        <button id="wx-refresh" class="icon-btn" title="Refresh now" aria-label="Refresh weather">↻</button>
       </div>
     </header>
     <div class="section-body" id="wx-body">
       <div id="wx-now" class="tiles"></div>
       <div id="wx-daily" class="daily"></div>
       <div class="panel-sub">
-        <p id="wx-status" class="note">Loading…</p>
+        <div class="update-row">
+          <button type="button" class="btn" id="wx-update">Update</button>
+          <p id="wx-status" class="note" aria-live="polite"></p>
+        </div>
         <div class="seg" id="wx-range" role="group" aria-label="Time range">
           <button data-range="12h">12 h</button><button data-range="24h">24 h</button><button data-range="2d">2 d</button><button data-range="4d">4 d</button><button data-range="7d">7 d</button><button data-range="all">All</button>
         </div>
@@ -200,7 +199,10 @@
         <p id="pm-value" class="map-value" title="Tap the map to read another point"></p>
       </div>
       <div class="legend-row"><div id="pm-legend" class="legend"></div><span id="pm-legend-unit" class="unit"></span></div>
-      <p id="pm-status" class="note map-status"></p>
+      <div class="update-row">
+        <button type="button" class="btn" id="pm-update" disabled>Update</button>
+        <p id="pm-status" class="note map-status" aria-live="polite"></p>
+      </div>
     </div>
   </section>
 

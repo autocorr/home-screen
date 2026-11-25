@@ -18,8 +18,9 @@
 // powers add: dBZ' = 10 log10(Z - Z_clutter).
 //
 // Fetch budget:
-//   - The scan list (json/radar.py, ~2 kB) is read on start, then at most
-//     every POLL_MIN minutes while the map is on screen.
+//   - The scan list (json/radar.py, ~2 kB) is read only when the caller asks
+//     (the section's Update button). snapshot() and restore() let the caller
+//     keep it, so a reload can show the same scans without asking again.
 //   - Tiles are ~1-20 kB, fetched only for frames that are shown, and only at
 //     zoom <= NATIVE_Z (MapLibre overzooms beyond it) inside `bounds`. A tile
 //     URL names one scan, so it never changes: with storage on disk (the
@@ -32,7 +33,6 @@ import { CACHES, LIMITS, cachedFetch, pruneCache, useDisk } from '../storage.js'
 const IEM = 'https://mesonet.agron.iastate.edu';
 const tileUrl = (ts, z, x, y) => `${IEM}/cache/tile.py/1.0.0/ridge::USCOMP-N0Q-${ts}/${z}/${x}/${y}.png`;
 const NATIVE_Z = 8;        // ~0.5 km pixels at 34°N, about the mosaic's own resolution
-const POLL_MIN = 2;        // a new mosaic every 5 min, ~1 min after its time
 const TILE_CACHE = 48;     // decoded tiles (64 kB each) kept for point values
 
 // The N0Q palette (from the mosaic's GIS PNG), 256 RGB triplets.
@@ -241,8 +241,9 @@ export function installIemProtocol(maplibregl, wml, { colorScale, bounds, clutte
  */
 export function iemRadarLayer({ label = 'Observed radar', historyH = 2, bounds, until = null, colorScale = null } = {}) {
   let frames = [];
-  let checkedAt = 0;
   let newest = null;
+  let loaded = false;      // a scan list has been read (or restored), even an empty one
+  const setFrames = (next) => { frames = next; newest = frames.length ? new Date(frames.at(-1).time) : null; loaded = true; };
 
   const layer = {
     id: 'iem:n0q',
@@ -279,11 +280,9 @@ export function iemRadarLayer({ label = 'Observed radar', historyH = 2, bounds, 
       } catch { return null; }
     },
     get newest() { return newest; },
-    /** Re-read the scan list if due (or forced). Resolves true when the frames changed. */
-    async refresh({ force = false } = {}) {
+    /** Re-read the scan list. Resolves true when the frames changed. */
+    async refresh() {
       if (until && frames.length) return false;
-      if (!force && Date.now() - checkedAt < POLL_MIN * 60e3) return false;
-      checkedAt = Date.now();
       const end = until ?? new Date();
       const start = new Date(end - historyH * 3600e3);
       const url = `${IEM}/json/radar.py?operation=list&product=N0Q&radar=USCOMP&start=${iso(start)}&end=${iso(end)}`;
@@ -294,9 +293,16 @@ export function iemRadarLayer({ label = 'Observed radar', historyH = 2, bounds, 
         .sort((a, b) => a - b)
         .map((t) => ({ time: t, key: stamp(new Date(t)) }));
       const same = next.length === frames.length && next.every((f, i) => f.key === frames[i].key);
-      if (same) return false;
-      frames = next;
-      newest = frames.length ? new Date(frames.at(-1).time) : null;
+      if (same && loaded) return false;
+      setFrames(next);
+      return true;
+    },
+    /** The scan list refresh() last read, to store; null before it has succeeded. */
+    snapshot: () => (loaded ? { frames } : null),
+    /** Show a stored snapshot's scans (no request). */
+    restore(snap) {
+      if (!Array.isArray(snap?.frames) || snap.frames.some((f) => !Number.isFinite(f?.time) || !/^\d{12}$/.test(f.key))) return false;
+      setFrames(snap.frames);
       return true;
     },
   };

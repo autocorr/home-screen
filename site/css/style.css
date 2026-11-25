@@ -214,8 +214,10 @@ dialog::backdrop { background: rgba(0, 0, 0, .45); }
 .swatch.on-sky { background: #0b1226; outline: 1px solid #0b1226; }
 .polar-info .pi-wide { grid-column: 1 / -1; white-space: normal; }
 #sat-polar-info { min-height: calc(4 * 1.35em); align-content: start; }
-.sat-update { display: flex; align-items: baseline; gap: 10px; }
-.sat-update .btn { flex: none; }
+/* An Update button beside its status line (satellites, weather, map) */
+.update-row { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.update-row .btn { flex: none; }
+.update-row .note { min-width: 0; }
 .sat-week-card { grid-area: week; min-width: 0; display: grid; gap: 4px; }
 .sat-polar-card { grid-area: polar; min-width: 0; }
 .sat-el-card { grid-area: chart; min-width: 0; }
@@ -329,11 +331,11 @@ dialog::backdrop { background: rgba(0, 0, 0, .45); }
 .map-time .icon-btn { padding: 3px 0; }
 .map-time .icon-btn:disabled { opacity: .35; cursor: default; }
 #pm-prev, #pm-next { font-size: 1.25rem; line-height: 1; }
-.map-info { display: flex; justify-content: space-between; align-items: baseline; gap: 4px 12px; flex-wrap: wrap; }
+.map-info { display: flex; justify-content: space-between; align-items: baseline; gap: 4px 12px; flex-wrap: wrap; min-height: calc(0.82rem * 1.4); }
 .map-time-label, .map-value { margin: 0; font-size: 0.82rem; font-variant-numeric: tabular-nums; }
 .map-value { color: var(--text-secondary); }
 /* Status stays one line in both views so the section height doesn't change; errors may wrap. */
-.map-status:not(.error) { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.map-status:not(.wrap) { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .legend-row { display: flex; align-items: flex-start; gap: 8px; }
 .legend { flex: 1; min-width: 0; max-width: 560px; }
 .legend-bar { height: 10px; border: 1px solid var(--rule); }

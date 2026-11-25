@@ -89,7 +89,7 @@ python3 -m http.server -d site 8000   # then open http://localhost:8000
 
 ## Weather data, API budget, caching
 
-There are two requests per refresh, defined at the top of `site/js/weather.js`:
+There are two requests per download, defined at the top of `site/js/weather.js`:
 
 - **Forecast** (`api.open-meteo.com`, seamless `best_match`):
   - 15 `minutely_15` variables: temperature, humidity, precipitation, wind, visibility, radiation, CAPE, freezing level. These are native NOAA RRFS over North America and interpolated from hourly beyond the RRFS horizon.
@@ -103,11 +103,11 @@ The forecast request's `X-RateLimit-Cost` response header confirms **3.6** calls
 15-minute data costs the same as hourly. The air-quality request costs 1.0. Hover the
 status line to see the last request's actual cost.
 
-Refetching follows model runs, not a fixed timer. Every 5 minutes, and whenever the tab
-becomes visible, the page reads each model's `meta.json`
-(`https://api.open-meteo.com/data/<model>/static/meta.json`). These files are tiny,
-CORS-enabled and not rate-limited. A dataset is refetched only when a model has a
-`last_run_availability_time` newer than our copy:
+**Only on request.** Opening the page sends nothing to Open-Meteo: the section shows the
+data stored in localStorage (`wx:v3`), or asks you to press **Update**. Update first reads
+each model's `meta.json` (`https://api.open-meteo.com/data/<model>/static/meta.json`).
+These files are tiny, CORS-enabled and not rate-limited. A dataset is then downloaded only
+when a model has a `last_run_availability_time` newer than our copy:
 
 - **Forecast:** watches RRFS, NBM and GFS, so it refreshes about hourly.
 - **Air quality:** watches CAMS, so it refreshes about every 12 h.
@@ -116,10 +116,13 @@ Fallbacks:
 - If the metadata can't be read, data older than `WX_MAX_AGE_MIN` (30 min) is refetched.
 - Anything older than 6 h is always refetched.
 - A changed request URL (for example, after editing the variable lists) invalidates the cache.
-- ↻ forces a refetch.
 
-The status line shows the newest model run, e.g. "newest run NBM 03Z". Leaving a tab
-open all day costs about 24 × 3.6 + 2 × 1 ≈ 90 calls. The free tier allows 10,000 per day.
+After an Update, in any tab, the button is disabled for 5 min (`WX_MIN_UPDATE_MIN` in
+`config.js`). The models publish at most hourly, so checking more often finds nothing new.
+The status line shows when the data was fetched and the newest model run, e.g. "newest
+run NBM 03Z"; the button's tooltip says when Update is available again. Even pressing
+Update every hour all day costs about 24 × 3.6 + 2 × 1 ≈ 90 calls. The free tier allows
+10,000 per day.
 
 ## Satellites
 
@@ -258,8 +261,16 @@ That is about 200–250 kB per frame. Tiles are rendered in the browser.
 Data outside the cut-out is never downloaded or drawn.
 
 **Fetch budget.**
-- `latest.json` (~8 kB) is read when the map opens, and then at most every 10 min while the
-  map is visible. It is a conditional request, so an unchanged file costs a 304.
+- **Only on request.** Opening the map downloads no data: it shows the run (and, in the
+  radar view, the scans) that the last **Update** found, or asks you to press Update.
+  Update reads `latest.json` (~8 kB per model) again. It is a conditional request, so an
+  unchanged file costs a 304. With [Data storage](#data-storage) on disk, what Update found
+  is kept in localStorage (`precip:data:v1`), so a reload shows the same timeline (and its
+  frames come from Cache Storage) without asking again; with memory only, each reload
+  starts empty. Each view (precipitation, radar) has its own Update: after one, in any tab,
+  that view's button is disabled for 5 min (`PRECIP_MAP.minUpdateMin`). The radar mosaic
+  is made every 5 min and the forecast models publish at most hourly. If a download fails,
+  the status line says so (in red) and the data from before stays on the map.
 - File URLs are built for a specific run and valid time, so cached data never goes stale.
   The library's `latest.json?...` "capture" URLs are not used: they would re-read
   `latest.json` for every frame.
@@ -294,8 +305,8 @@ the times after the previous layer's last frame:
 3. **RRFS hourly:** `ncep_rrfs_conus` `radar_reflectivity`. New runs come every 6 h and reach
    84 h ahead.
 
-The first view, and **Now**, show the newest observed scan. While you stay there, the view
-follows new scans as they arrive.
+The first view, and **Now**, show the newest observed scan. If you are there when you press
+Update, the view moves to the newest scan it finds.
 
 **Base vs composite.** The forecast is the simulated *composite* reflectivity: the
 strongest echo anywhere in the column. IEM only publishes a *base* mosaic, built from each
@@ -341,7 +352,8 @@ uses IEM's WMS (one image per scan, one request at a time, every image cached in
 `~/.cache/home-screen/n0q`) and stops on any server error.
 
 **Fetch budget.**
-- **Scan list** (`json/radar.py`, ~2 kB): read at most every 2 min while the map is visible.
+- **Scan list** (`json/radar.py`, ~2 kB): read only when Update is pressed (at most every
+  5 min).
 - **Tiles:** about 1–20 kB each. They are requested up to zoom 8 (about the mosaic's own
   resolution; MapLibre enlarges them beyond that) and only inside the cut-out. A tile URL
   names one scan and never changes, so with [Data storage](#data-storage) on disk tiles are
@@ -448,14 +460,17 @@ service: CelesTrak, Open-Meteo (API and the map files on S3), IEM radar, or the 
 servers. A new data source needs a mock in `tests/` in the same change. A problem that only
 shows up against a live service is fixed when it appears in production.
 
-Not done yet: `browser_check.py` and `firefox_selenium_check.py` still load Open-Meteo,
-radar and map data live. They need mocks like CelesTrak's.
-
-The tests never contact CelesTrak:
 - `browser_check.py` answers every CelesTrak request with `tests/celestrak_mock.py`. The
   mock serves generated CSV element sets in CelesTrak's format: realistic low-Earth orbits
   for the satellites in `satmags.js` and `config.js`, with epochs a few hours old.
-- `firefox_selenium_check.py` doesn't load satellite data at all.
+- It routes Open-Meteo, S3, IEM and the basemaps to `tests/weather_mock.py`. That mock
+  generates forecast and air-quality JSON for the variables asked for, model `meta.json`
+  files, an IEM scan list with blank (no echo) tiles, and an empty basemap. There is no
+  mock for the `.om` map files yet: S3 answers 503, so the test checks that a failed map
+  Update is reported, and the radar view shows the observed scans without the RRFS
+  forecast. It fails if any request leaves the machine unmocked.
+- `firefox_selenium_check.py` never presses an Update button, so the page sends no data
+  requests. Its weather section is shown from a cache seeded with the mock's forecast.
 - `tle_policy_check.mjs` stubs `fetch`.
 
 ```sh

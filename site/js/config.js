@@ -62,9 +62,13 @@ export const SATS = {
   darkSunEl: -6,       // the sky counts as dark (satellites visible) when the Sun is below this
 };
 
-// Weather cache: data is refetched when Open-Meteo publishes a newer model run.
+// Weather cache: Update refetches only when Open-Meteo has published a newer model run.
 // This age (minutes) is only the fallback when the model metadata can't be read.
 export const WX_MAX_AGE_MIN = 30;
+// Weather is downloaded only when Update is pressed; after that (in any tab) Update
+// waits this long. Each Update only reads Open-Meteo's run metadata unless a newer
+// model run exists, and its models publish at most hourly.
+export const WX_MIN_UPDATE_MIN = 5;
 
 // Precipitation map (site/js/precip.js). `bounds` [west, south, east, north] is
 // the cut-out: data outside it is never downloaded or drawn, and the map can't
@@ -92,6 +96,10 @@ export const PRECIP_MAP = {
   // hours, then each forecast domain in turn (RRFS `radar_reflectivity`, the
   // simulated composite reflectivity). A later domain only fills times after
   // the one before it ends.
+  // Map data is downloaded only when Update is pressed. Afterwards (in any tab) Update
+  // waits this long for the view shown: the radar mosaic is made every 5 min, and the
+  // forecast models publish at most hourly.
+  minUpdateMin: { precip: 5, refl: 5 },
   radar: {
     historyH: 2,
     // Hide ground clutter (mountains near the radars) with the map built by

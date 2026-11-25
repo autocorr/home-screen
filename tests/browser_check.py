@@ -33,9 +33,12 @@ PROFILES = {
     "desktop": dict(viewport={"width": 1280, "height": 900}),
 }
 
-# CelesTrak is never contacted: tests/celestrak_mock.py answers its GP queries with
-# generated element sets (its usage policy limits downloads, and tests run often).
+# No live service is contacted: tests/celestrak_mock.py answers CelesTrak's GP queries
+# with generated element sets (its usage policy limits downloads, and tests run often),
+# and tests/weather_mock.py stands in for Open-Meteo, S3, IEM and the basemaps.
 from celestrak_mock import CELESTRAK, celestrak_mock
+from weather_mock import S3, install_mocks
+from urllib.parse import urlparse
 
 with sync_playwright() as p:
     browser = getattr(p, args.engine).launch()
@@ -47,15 +50,32 @@ with sync_playwright() as p:
             pg = ctx.new_page()
             errors, wx_reqs = [], []
             pg.on("pageerror", lambda e: errors.append(str(e)))
-            pg.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
+            # The S3 mock answers 503 on purpose (there is no .om mock): not a page error.
+            pg.on("console", lambda m: errors.append(m.text) if m.type == "error"
+                  and not ("Failed to load resource" in m.text and S3.match(m.location.get("url", ""))) else None)
             # Data requests only (cost API calls); model meta.json checks are free.
             pg.on("request", lambda r: wx_reqs.append(r.url) if "open-meteo" in r.url and "/v1/" in r.url else None)
             tle_reqs = []
             pg.on("request", lambda r: tle_reqs.append(r.url) if "celestrak" in r.url else None)
-            mocked = []
+            mocked, wx_mocked = [], []
             ctx.route(CELESTRAK, celestrak_mock(mocked))
+            om = install_mocks(ctx, wx_mocked)
+            site = urlparse(args.url).netloc
+            external = []   # every request off this site; each must have gone to a mock
+            pg.on("request", lambda r: external.append(r.url) if r.url.startswith("http") and urlparse(r.url).netloc != site else None)
             pg.goto(args.url)
+            pg.wait_for_timeout(1000)
+
+            # Weather: nothing downloaded on load; Update downloads it, then waits 5 min.
+            check("weather: no Open-Meteo request on load", not wx_mocked, "; ".join(wx_mocked)[:200])
+            check("weather: prompt to press Update", "Press Update" in pg.inner_text("#wx-status"), pg.inner_text("#wx-status"))
+            pg.click("#wx-update")
             pg.wait_for_function("document.querySelectorAll('#wx-charts .uplot').length > 10", timeout=15000)
+            check("weather: Update disabled after a download", pg.is_disabled("#wx-update") and
+                  "again in 5 min" in (pg.get_attribute("#wx-update", "title") or ""), pg.get_attribute("#wx-update", "title"))
+            n_wx = len(wx_reqs)
+            pg.eval_on_selector("#wx-update", "(b) => { b.disabled = false; b.click(); }"); pg.wait_for_timeout(300)
+            check("weather: Update within 5 min sends nothing", len(wx_reqs) == n_wx, f"{n_wx} -> {len(wx_reqs)}")
 
             w = opts["viewport"]["width"]
             sw = pg.evaluate("document.documentElement.scrollWidth")
@@ -192,40 +212,55 @@ with sync_playwright() as p:
             # that the failure is reported in the section rather than breaking the page.
             webgl2 = pg.evaluate("!!document.createElement('canvas').getContext('webgl2')")
             pg.locator("#precip").scroll_into_view_if_needed()
+            map_reqs = lambda: [u for u in wx_mocked if S3.match(u) or "mesonet" in u]
             if not webgl2:
                 pg.wait_for_timeout(500)
                 print("  SKIP  precip map rendering (no WebGL2 in this browser)")
                 check("map reports missing WebGL2", "WebGL2" in pg.inner_text("#pm-status"), pg.inner_text("#pm-status")[:80])
             else:
-                pg.wait_for_timeout(500)
                 check("map doesn't ask again", not pg.is_visible("#pm-consent"))
                 try:
-                    pg.wait_for_function("/run \\d\\dZ/.test(document.querySelector('#pm-status').textContent)", timeout=30000)
-                    pg.wait_for_function("/Socorro/.test(document.querySelector('#pm-value').textContent)", timeout=30000)
+                    pg.wait_for_function("/Press Update/.test(document.querySelector('#pm-status').textContent)", timeout=30000)
                 except Exception:
                     pass
-                check("precip map loads a model run", "run" in pg.inner_text("#pm-status"), pg.inner_text("#pm-status"))
-                check("precip map reads value at Socorro", "Socorro" in pg.inner_text("#pm-value"), pg.inner_text("#pm-value"))
-                check("precip map has a timeline", int(pg.get_attribute("#pm-slider", "max")) >= 10)
-                check("map uses the disk cache", pg.evaluate("caches.has('map-blocks-v1')"))
-                t_before = pg.inner_text("#pm-time")
-                pg.focus("#pm-slider"); pg.keyboard.press("ArrowRight"); pg.wait_for_timeout(300)
-                check("map timeline steps", pg.inner_text("#pm-time") != t_before,
-                      f"{t_before} -> {pg.inner_text('#pm-time')}")
+                check("map: nothing downloaded on load", not map_reqs(), "; ".join(map_reqs())[:200])
+                check("map: prompt to press Update", "Press Update" in pg.inner_text("#pm-status") and pg.is_enabled("#pm-update"),
+                      pg.inner_text("#pm-status"))
+                sec_h = pg.evaluate("document.querySelector('#precip').getBoundingClientRect().height")
+                map_top = pg.evaluate("document.querySelector('#pm-map').getBoundingClientRect().top - document.querySelector('#precip').getBoundingClientRect().top")
+                # There is no .om mock (S3 answers 503): the precipitation Update fails and says so.
+                pg.click("#pm-update")
+                try:
+                    pg.wait_for_function("/Couldn't download/.test(document.querySelector('#pm-status').textContent)", timeout=15000)
+                except Exception:
+                    pass
+                check("map: failed Update is reported", "Couldn't download" in pg.inner_text("#pm-status")
+                      and any(S3.match(u) for u in map_reqs()), pg.inner_text("#pm-status"))
 
                 # Radar: observed IEM mosaic up to now, then the RRFS reflectivity forecast.
                 # Switching while at "now" lands on the radar's "now" (the latest scan).
                 pg.click("#pm-now")
-                sec_h = pg.evaluate("document.querySelector('#precip').getBoundingClientRect().height")
-                map_top = pg.evaluate("document.querySelector('#pm-map').getBoundingClientRect().top - document.querySelector('#precip').getBoundingClientRect().top")
                 pg.click("#pm-qty button[data-qty=refl]")
+                pg.wait_for_timeout(300)
+                check("radar: prompt to press Update", "Press Update" in pg.inner_text("#pm-status"), pg.inner_text("#pm-status"))
+                pg.click("#pm-update")
                 try:
-                    pg.wait_for_function("/Radar to .* RRFS (runs|archived) \\d\\dZ/.test(document.querySelector('#pm-status').textContent)", timeout=30000)
+                    pg.wait_for_function("/Radar to /.test(document.querySelector('#pm-status').textContent)", timeout=30000)
                     pg.wait_for_function("/Socorro: .*(dBZ|no echo)/.test(document.querySelector('#pm-value').textContent)", timeout=30000)
                 except Exception:
                     pass
                 st = pg.inner_text("#pm-status")
-                check("radar loads observed scans and RRFS runs", "Radar to" in st and "RRFS" in st, st)
+                check("radar Update loads observed scans", "Radar to" in st and "No RRFS forecast" in st, st)
+                check("radar timeline steps", int(pg.get_attribute("#pm-slider", "max")) >= 10)
+                pg.reload(); pg.wait_for_timeout(500)
+                pg.locator("#precip").scroll_into_view_if_needed()
+                n_map = len(map_reqs())
+                try:
+                    pg.wait_for_function("/Radar to /.test(document.querySelector('#pm-status').textContent)", timeout=30000)
+                except Exception:
+                    pass
+                check("radar: reload shows the stored scans without asking", "Radar to" in pg.inner_text("#pm-status")
+                      and not [u for u in map_reqs()[n_map:] if "radar.py" in u], pg.inner_text("#pm-status"))
                 check("radar starts at the latest observed scan", "observed · latest" in pg.inner_text("#pm-time"), pg.inner_text("#pm-time"))
                 check("radar reads dBZ at Socorro", "Socorro" in pg.inner_text("#pm-value"), pg.inner_text("#pm-value"))
                 check("radar locks the model switch to RRFS",
@@ -239,14 +274,7 @@ with sync_playwright() as p:
                 pg.wait_for_timeout(500)   # tiles are stored after they are drawn
                 check("radar tiles stored in Cache Storage", pg.evaluate(
                     "caches.open('radar-tiles-v1').then(c => c.keys()).then(k => k.length)") > 0)
-                pg.click("#pm-next")
-                pg.wait_for_timeout(500)
-                check("radar steps from observed to forecast", "RRFS" in pg.inner_text("#pm-time"), pg.inner_text("#pm-time"))
-                pg.click("#pm-qty button[data-qty=precip]")
-                try:
-                    pg.wait_for_function("/run \\d\\dZ \\(/.test(document.querySelector('#pm-status').textContent)", timeout=30000)
-                except Exception:
-                    pass
+                pg.click("#pm-qty button[data-qty=precip]"); pg.wait_for_timeout(300)
                 check("switch back to precipitation", pg.is_enabled("#pm-model button[data-model=ncep_nbm_conus]") and pg.inner_text("#pm-legend-unit") != "dBZ",
                       pg.inner_text("#pm-status"))
 
@@ -293,13 +321,16 @@ with sync_playwright() as p:
             lab.click(); pg.wait_for_timeout(150)
             check("chart legend click syncs to polar + other chart", off and el_off)
 
-            # Refetch only when Open-Meteo has a newer model run than our copy.
+            # Update refetches only what Open-Meteo has a newer model run for.
             wx_reqs.clear()
+            om.new_run()
             pg.evaluate("""() => { const c = JSON.parse(localStorage.getItem('wx:v3'));
-                c.fetched.forecast = Date.now() - 3 * 3600e3; c.fetched.air = Date.now();
+                c.fetched.forecast = Date.now() - 600e3; c.fetched.air = Date.now() + 60e3; c.checked = 0;
                 localStorage.setItem('wx:v3', JSON.stringify(c)); }""")
-            pg.reload(); pg.wait_for_timeout(2500)
-            check("refetch forecast when a newer run exists",
+            pg.reload(); pg.wait_for_timeout(1000)
+            check("weather: nothing downloaded on reload", not wx_reqs, ", ".join(u.split("?")[0] for u in wx_reqs))
+            pg.locator("#wx-update").scroll_into_view_if_needed(); pg.click("#wx-update"); pg.wait_for_timeout(1500)
+            check("Update refetches the forecast when a newer run exists",
                   any("/v1/forecast" in u for u in wx_reqs) and not any("air-quality" in u for u in wx_reqs),
                   ", ".join(u.split("?")[0] for u in wx_reqs))
 
@@ -388,6 +419,8 @@ with sync_playwright() as p:
             check("CelesTrak never contacted (all requests mocked)", tle_reqs and all(u in mocked for u in tle_reqs),
                   f"{len(tle_reqs)} requests, {len(mocked)} mocked")
             check("status shows model run", "run" in pg.inner_text("#wx-status"), pg.inner_text("#wx-status"))
+            live = [u for u in external if u not in mocked and u not in wx_mocked]
+            check("no live service contacted (all requests mocked)", not live, "; ".join(live)[:200])
             check("no JS errors", not errors, "; ".join(errors)[:200])
             ctx.close()
     browser.close()
