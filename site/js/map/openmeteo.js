@@ -1,9 +1,11 @@
 // Open-Meteo spatial forecast data (.om files on AWS S3) as a MapView data layer.
 //
 // Fetch budget:
-//   - `latest.json` (~8 kB) per model: read on start, then at most every
-//     POLL_MIN minutes while the map is on screen. `cache: 'no-cache'` makes it
-//     a conditional request (ETag), so an unchanged file is a bodiless 304.
+//   - `latest.json` (~8 kB) per model: read only when the caller asks (the
+//     section's Update button). `cache: 'no-cache'` makes it a conditional
+//     request (ETag), so an unchanged file is a bodiless 304. snapshot() and
+//     restore() let the caller keep the last answer, so a reload can show the
+//     same run without asking again.
 //   - .om files: one per valid time (~100 MB each, all variables, whole CONUS).
 //     The reader fetches only the byte ranges covering our cut-out `bounds`
 //     for one variable (a few hundred kB per frame), in 64 kB blocks that go
@@ -15,7 +17,6 @@
 //     playing), never the whole run up front.
 
 export const S3_BASE = 'https://openmeteo.s3.amazonaws.com/data_spatial';
-const POLL_MIN = 10;
 
 const pad = (n) => String(n).padStart(2, '0');
 const runPath = (d) => `${d.getUTCFullYear()}/${pad(d.getUTCMonth() + 1)}/${pad(d.getUTCDate())}/${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}Z`;
@@ -56,7 +57,6 @@ export function openMeteoForecastLayer({ wml, model, label, variable = 'precipit
   let meta = null;          // parsed latest.json
   let frames = [];
   let etag = null;
-  let checkedAt = 0;
 
   const fileUrl = (validIso) => {
     const run = new Date(meta.reference_time);
@@ -98,11 +98,9 @@ export function openMeteoForecastLayer({ wml, model, label, variable = 'precipit
         return Number.isFinite(value) ? value : null;
       } catch { return null; }
     },
-    /** Re-read latest.json if due (or forced). Resolves true when the frames changed. */
-    async refresh({ force = false } = {}) {
+    /** Re-read latest.json. Resolves true when the frames changed. */
+    async refresh() {
       if (fixedRun && meta) return false;
-      if (!force && Date.now() - checkedAt < POLL_MIN * 60e3) return false;
-      checkedAt = Date.now();
       const metaUrl = fixedRun ? `${base}/${model}/${runPath(fixedRun)}/meta.json` : `${base}/${model}/latest.json`;
       const r = await fetch(metaUrl, { cache: fixedRun ? 'default' : 'no-cache' });
       if (!r.ok) throw new Error(`${model} ${fixedRun ? `run ${runPath(fixedRun)}` : 'latest.json'}: ${r.status}`);
@@ -113,15 +111,27 @@ export function openMeteoForecastLayer({ wml, model, label, variable = 'precipit
         etag = tag; return false;
       }
       if (!m.variables?.includes(variable)) throw new Error(`${model} has no ${variable}`);
-      meta = m; etag = tag;
-      const run = Date.parse(m.reference_time);
-      // An accumulation's first file of a run (the analysis) has nothing accumulated yet.
-      const skipFirst = wml.variableUsesDeltaTime(variable);
-      frames = m.valid_times.filter((v) => !(skipFirst && Date.parse(v) <= run))
-        .map((v) => ({ time: Date.parse(v), key: `${runPath(new Date(run))}-${filePart(new Date(v))}`, url: fileUrl(v) }))
-        .sort((a, b) => a.time - b.time);
+      setMeta(m); etag = tag;
+      return true;
+    },
+    /** What refresh() last learned, to store; null before it has succeeded. */
+    snapshot: () => (meta ? { meta, etag } : null),
+    /** Show a stored snapshot's run (no request). */
+    restore(snap) {
+      if (!snap?.meta?.valid_times || !snap.meta.variables?.includes(variable)) return false;
+      setMeta(snap.meta); etag = snap.etag ?? null;
       return true;
     },
   };
+
+  function setMeta(m) {
+    meta = m;
+    const run = Date.parse(m.reference_time);
+    // An accumulation's first file of a run (the analysis) has nothing accumulated yet.
+    const skipFirst = wml.variableUsesDeltaTime(variable);
+    frames = m.valid_times.filter((v) => !(skipFirst && Date.parse(v) <= run))
+      .map((v) => ({ time: Date.parse(v), key: `${runPath(new Date(run))}-${filePart(new Date(v))}`, url: fileUrl(v) }))
+      .sort((a, b) => a.time - b.time);
+  }
   return layer;
 }

@@ -96,7 +96,7 @@ export function initSettings(onThemeChange) {
     try {
       Object.keys(localStorage).filter((k) => /^wx:v\d+$/.test(k)).forEach((k) => localStorage.removeItem(k));
     } catch { /* ignore */ }
-    e.target.textContent = 'Cleared — reload to refetch';
+    e.target.textContent = 'Cleared — press Update to download again';
   });
   document.getElementById('open-settings').addEventListener('click', () => {
     renderList();

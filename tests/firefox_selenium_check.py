@@ -8,8 +8,10 @@ Selenium Manager downloads geckodriver automatically.
     uv run tests/firefox_selenium_check.py [--url URL] [--headed] [--shot FILE]
 """
 import argparse
+import json
 import sys
 import time
+from pathlib import Path
 
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -20,6 +22,9 @@ ap.add_argument("--url", default="http://localhost:8765/")
 ap.add_argument("--headed", action="store_true")
 ap.add_argument("--shot", default=None)
 args = ap.parse_args()
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from weather_mock import forecast_json  # noqa: E402
 
 failures = []
 def check(name, ok, detail=""):
@@ -43,10 +48,27 @@ for label, (w, h), dark in [("phone-ish", (393, 851), False), ("desktop", (1280,
     print(f"\n[{label} {w}px, {'dark' if dark else 'light'}] Firefox {drv.capabilities['browserVersion']}")
     if args.headed:
         drv.set_window_size(w, h)
-    # This test doesn't cover satellites; the page only downloads elements when Update is
-    # pressed, which this test never does.
-    # Window size includes browser chrome; read the real viewport width.
+    # Nothing here contacts a live service: the page downloads data (satellites, weather,
+    # map) only when an Update button is pressed, which this test never does. The weather
+    # section is shown from a cache seeded with tests/weather_mock.py's made-up forecast.
     drv.get(args.url)
+    q = {"latitude": "34.07", "longitude": "-106.91", "timezone": "America/Denver", "past_days": "1"}
+    seed = {
+        "forecast": forecast_json({**q, "forecast_days": "7", "minutely_15": "temperature_2m,apparent_temperature,dew_point_2m,"
+                                   "relative_humidity_2m,precipitation,wind_speed_10m,wind_direction_10m,wind_gusts_10m,visibility",
+                                   "hourly": "precipitation_probability,weather_code,pressure_msl,surface_pressure,cloud_cover,"
+                                   "cloud_cover_low,cloud_cover_mid,cloud_cover_high,uv_index,uv_index_clear_sky,is_day,"
+                                   "total_column_integrated_water_vapour",
+                                   "daily": "weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,"
+                                   "precipitation_probability_max,wind_gusts_10m_max,uv_index_max,sunrise,sunset"}),
+        "air": forecast_json({**q, "forecast_days": "5", "hourly": "us_aqi,pm2_5,pm10,dust,ozone,nitrogen_dioxide,"
+                              "sulphur_dioxide,carbon_monoxide,aerosol_optical_depth"}),
+        "fetched": {"forecast": int(time.time() * 1000), "air": int(time.time() * 1000)},
+        "fetchedAt": int(time.time() * 1000), "urls": {}, "cost": {}, "runs": {},
+    }
+    drv.execute_script("localStorage.setItem('wx:v3', arguments[0])", json.dumps(seed))
+    drv.refresh()
+    # Window size includes browser chrome; read the real viewport width.
     WebDriverWait(drv, 15).until(lambda d: d.execute_script(
         "return document.querySelectorAll('#wx-charts .uplot').length > 10"))
     js = drv.execute_script
