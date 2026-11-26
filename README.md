@@ -16,6 +16,14 @@ Sections can be collapsed by tapping their heading, and reordered or hidden with
   the next 48 h. Below them are the brightest (or soonest) passes and a table of ISS passes
   for the next 7 days, all with estimated peak brightness. Hover or tap the chart to move the
   sky view to that time; tap a pass to centre the chart on it.
+- **Moon · Socorro**: a lunar calendar for the next 7 days, computed in the browser (nothing
+  is downloaded). Now: phase, illumination, age, elevation, distance, constellation and
+  libration, the next principal phases, perigee and apogee, and the next lunar eclipse.
+  Each day: the phase at noon, moonrise, transit (time and elevation) and moonset, principal
+  phases and perigee/apogee, and the hours of moon-free astronomical darkness the night
+  starting that day (hover for the times). Below, the Moon's elevation over the 7 days.
+  The Moon is drawn from NASA's LRO map of its surface (`data/moon_lroc_1k.jpg`), with
+  celestial north up, the actual libration and the terminator where the Sun puts it.
 - **Weather · Socorro**: current conditions, 7-day summary, and hourly charts from
   [Open-Meteo](https://open-meteo.com/) (temperature, precipitation, cloud layers, wind,
   humidity, precipitable water, pressure, UV, solar radiation, visibility, CAPE,
@@ -51,6 +59,7 @@ site/
   js/data/starmap.js  bright stars, constellation lines and labels (generated)
   js/data/satmags.js  satellite standard magnitudes (generated)
   js/data/clutter.js  radar ground-clutter map metadata (generated; the map is data/n0q_clutter.png)
+  js/moon.js          moon section: phase, rise/transit/set, events, 7-day calendar and chart
   js/weather.js       Open-Meteo fetch + localStorage cache + charts
   js/clocks.js        MT/UTC/LST and world clocks
   js/links.js         links section

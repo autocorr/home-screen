@@ -148,6 +148,17 @@
     </div>
   </section>
 
+  <section id="moon" data-section="moon" class="panel" aria-labelledby="moon-h">
+    <header class="section-head">
+      <h2 id="moon-h"><button class="section-toggle" aria-expanded="true" aria-controls="moon-body">Moon · Socorro</button></h2>
+    </header>
+    <div class="section-body" id="moon-body">
+      <div id="moon-now" class="tiles moon-tiles"></div>
+      <div id="moon-days" class="daily moon-days"></div>
+      <figure class="chart-card"><figcaption>Moon elevation <span class="unit">(MT · shaded: Sun below the horizon)</span></figcaption><div class="chart" id="moon-el"></div></figure>
+    </div>
+  </section>
+
   <section id="weather" data-section="weather" class="panel" aria-labelledby="wx-h">
     <header class="section-head">
       <h2 id="wx-h"><button class="section-toggle" aria-expanded="true" aria-controls="wx-body">Weather · Socorro</button></h2>
@@ -232,7 +243,7 @@
 
   <footer class="site-footer">
     <button type="button" id="open-settings" class="btn">⚙ Settings</button>
-    <p class="note">Weather &amp; air quality: <a href="https://open-meteo.com/">Open-Meteo</a> (CC BY 4.0). Positions: <a href="https://github.com/cosinekitty/astronomy">Astronomy Engine</a>. Satellites: orbital elements from <a href="https://celestrak.org/">CelesTrak</a>, magnitudes from <a href="https://www.mmccants.org/">Mike McCants</a>, propagated with <a href="https://github.com/shashwatak/satellite-js">satellite.js</a>. Stars &amp; constellations: <a href="https://github.com/ofrohn/d3-celestial">d3-celestial</a> (Hipparcos). Charts: <a href="https://github.com/leeoniya/uPlot">uPlot</a>. Maps: <a href="https://maplibre.org/">MapLibre</a>, <a href="https://github.com/open-meteo/weather-map-layer">Open-Meteo weather-map-layer</a>, map data © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors.</p>
+    <p class="note">Weather &amp; air quality: <a href="https://open-meteo.com/">Open-Meteo</a> (CC BY 4.0). Positions: <a href="https://github.com/cosinekitty/astronomy">Astronomy Engine</a>. Satellites: orbital elements from <a href="https://celestrak.org/">CelesTrak</a>, magnitudes from <a href="https://www.mmccants.org/">Mike McCants</a>, propagated with <a href="https://github.com/shashwatak/satellite-js">satellite.js</a>. Moon map: NASA LRO, via the <a href="https://svs.gsfc.nasa.gov/4720">SVS CGI Moon Kit</a>. Stars &amp; constellations: <a href="https://github.com/ofrohn/d3-celestial">d3-celestial</a> (Hipparcos). Charts: <a href="https://github.com/leeoniya/uPlot">uPlot</a>. Maps: <a href="https://maplibre.org/">MapLibre</a>, <a href="https://github.com/open-meteo/weather-map-layer">Open-Meteo weather-map-layer</a>, map data © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors.</p>
   </footer>
 </main>
 
