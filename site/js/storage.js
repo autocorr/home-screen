@@ -48,7 +48,9 @@ if (typeof window !== 'undefined') window.addEventListener('storage', (e) => { i
 export async function setStoragePref(pref) {
   try { localStorage.setItem(KEY, pref); } catch { /* ignore */ }
   if (pref === 'disk') {
-    try { await navigator.storage?.persist?.(); } catch { /* ignore */ }
+    // Don't wait for it: Firefox asks the user, and the promise stays pending until
+    // they answer (forever if they ignore the prompt), which would stall Update.
+    try { navigator.storage?.persist?.()?.catch(() => {}); } catch { /* ignore */ }
   } else {
     await clearCaches();
   }
