@@ -92,6 +92,18 @@ with sync_playwright() as p:
             check("sky table rows", pg.locator("#sky-table tbody tr").count() == 7)
             check("polar tracks", pg.locator("#sky-polar path.track").count() == 14)
             check("sky charts", pg.locator("#sky .uplot canvas").count() == 2)
+            check("moon calendar: 7 days", pg.locator("#moon-days .day").count() == 7)
+            check("moon calendar: phase disks", pg.locator("#moon-days .day .moon-disk canvas").count() == 7)
+            # The disks are drawn from the lunar map: the lit part shows dark maria and bright highlands.
+            spread = pg.evaluate("""(() => { const c = document.querySelector('#moon-now canvas');
+                const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data, g = [];
+                for (let i = 0; i < d.length; i += 4) if (d[i + 3] === 255 && d[i] > 60) g.push(d[i]);
+                g.sort((a, b) => a - b);
+                return g.length ? g[Math.floor(g.length * 0.95)] - g[Math.floor(g.length * 0.05)] : 0; })()""")
+            check("moon disk drawn from the map", spread > 40, f"lit brightness spread {spread}")
+            check("moon calendar: rise/set times", pg.locator("#moon-days .day-meta").filter(has_text="↑").count() == 7)
+            check("moon summary", "% lit" in pg.inner_text("#moon-now") and "next phases" in pg.inner_text("#moon-now").lower())
+            check("moon chart", pg.locator("#moon-el .uplot canvas").count() == 1)
             n = pg.locator("#wx-charts .uplot").count()
             check("weather charts", n >= 20, f"{n}")
             check("weather tiles", pg.locator("#wx-now .tile").count() == 8)
@@ -357,7 +369,7 @@ with sync_playwright() as p:
 
             # Every section collapses (catches ID rules overriding the collapse rule).
             bad = []
-            for sec in ["clocks", "world", "sky", "sats", "weather", "precip", "calc", "links"]:
+            for sec in ["clocks", "world", "sky", "sats", "moon", "weather", "precip", "calc", "links"]:
                 tog = pg.locator(f'[data-section="{sec}"] .section-toggle')
                 tog.scroll_into_view_if_needed(); tog.click()
                 if pg.locator(f'[data-section="{sec}"] .section-body').is_visible(): bad.append(sec)

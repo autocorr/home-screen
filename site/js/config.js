@@ -62,6 +62,15 @@ export const SATS = {
   darkSunEl: -6,       // the sky counts as dark (satellites visible) when the Sun is below this
 };
 
+// Moon section (site/js/moon.js): lunar calendar for Socorro, computed in the
+// browser with Astronomy Engine (no downloads).
+export const MOON = {
+  observer: { ...SOCORRO, height: 1400 },  // m
+  days: 7,             // calendar days shown, starting today (MT)
+  darkSunEl: -18,      // "dark" = Sun below this (astronomical twilight) and Moon below the horizon
+  stepMin: 10,         // sampling step for the elevation chart and dark hours
+};
+
 // Weather cache: Update refetches only when Open-Meteo has published a newer model run.
 // This age (minutes) is only the fallback when the model metadata can't be read.
 export const WX_MAX_AGE_MIN = 30;
@@ -137,6 +146,7 @@ export const SECTIONS = [
   { id: 'world', label: 'World time' },
   { id: 'sky', label: 'Sky at the VLA' },
   { id: 'sats', label: 'Satellites' },
+  { id: 'moon', label: 'Moon' },
   { id: 'weather', label: 'Weather' },
   { id: 'precip', label: 'Precipitation & radar map' },
   { id: 'calc', label: 'Calculator' },

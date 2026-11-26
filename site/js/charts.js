@@ -35,13 +35,13 @@ const xAxisValues24 = [
   [60, '{HH}:{mm}', '\n{M}/{D}', null, '\n{M}/{D}', null, null, null, 1],
 ];
 
-export function axes(yLabel, yValues, ySplits, h24 = false, gridStroke = null) {
+export function axes(yLabel, yValues, ySplits, h24 = false, gridStroke = null, xSpace = 46) {
   const grid = { stroke: gridStroke ?? cssVar('--grid'), width: 1 };
   const ticks = { stroke: cssVar('--axis'), width: 1, size: 4 };
   const font = '10px system-ui, -apple-system, "Segoe UI", sans-serif';
   const stroke = cssVar('--text-muted');
   return [
-    { stroke, grid, ticks, font, values: h24 ? xAxisValues24 : xAxisValues, space: 46, size: 32, gap: 2 },
+    { stroke, grid, ticks, font, values: h24 ? xAxisValues24 : xAxisValues, space: xSpace, size: 32, gap: 2 },
     { stroke, grid, ticks, font, values: yValues, splits: ySplits, gap: 3, size: fitAxis,
       ...(yLabel ? { label: yLabel, labelFont: font, labelSize: 14 } : {}) },
   ];
@@ -140,7 +140,8 @@ function decorPlugin({ now, nowStroke, shade, hlines }) {
  * Create a responsive uPlot chart in `el`.
  * opts: { series:[{label,color,fmt,points,paths,dash,width}], data, yRange, yLabel, legend (false hides),
  *         touch (false: no touch-drag cursor), gridStroke, nowStroke (colour overrides),
- *         yValues, ySplits, syncKey, now, shade, hlines, height, xRange, plugins, hooks }
+ *         yValues, ySplits, syncKey, now, shade, hlines, height, xRange, xSpace (min px between x ticks),
+ *         plugins, hooks }
  */
 export function makeChart(el, opts) {
   const height = opts.height ?? 180;
@@ -178,7 +179,7 @@ export function makeChart(el, opts) {
       x: { time: true, range: opts.xRange ? () => opts.xRange() : undefined },
       y: { range: opts.yRange ?? ((u, min, max) => padRange(min, max)) },
     },
-    axes: axes(opts.yLabel, opts.yValues, opts.ySplits, opts.h24, opts.gridStroke),
+    axes: axes(opts.yLabel, opts.yValues, opts.ySplits, opts.h24, opts.gridStroke, opts.xSpace),
     series,
     plugins: [touchPlugin(opts.touch !== false), decorPlugin(opts), ...(opts.plugins || [])],
     hooks: opts.hooks,
