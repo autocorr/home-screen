@@ -50,13 +50,7 @@ export class MapView {
     this.scaleCtl = new this.ml.ScaleControl({ unit: opts.units === 'metric' ? 'metric' : 'imperial' });
     this.map.addControl(this.scaleCtl, 'bottom-left');
     this.#attribution();
-    for (const m of opts.markers ?? []) {
-      const el = document.createElement('div');
-      el.className = 'map-marker';
-      el.innerHTML = `<span class="map-marker-dot"></span>${m.label ? `<span class="map-marker-label">${m.label}</span>` : ''}`;
-      el.title = m.title ?? m.label;
-      new this.ml.Marker({ element: el, anchor: m.label ? 'left' : 'center', offset: m.label ? [-5, 0] : [0, 0] }).setLngLat(m.lngLat).addTo(this.map);
-    }
+    for (const m of opts.markers ?? []) this.addMarker(m);
     this.ready = new Promise((res) => this.map.once('load', res));
     // A style change drops every source and layer: re-add the data layers.
     // Own flag: map.isStyleLoaded() is also false while any source (e.g. a new
@@ -68,6 +62,16 @@ export class MapView {
       for (const s of this.layers.values()) { s.shown = null; s.ready = null; s.resident = []; }
       this.#render();
     });
+  }
+
+  /** Add a dot with an optional label at m.lngLat; returns the MapLibre marker (call .remove() to drop it). */
+  addMarker(m) {
+    const el = document.createElement('div');
+    el.className = 'map-marker';
+    el.innerHTML = `<span class="map-marker-dot"></span>${m.label ? `<span class="map-marker-label">${m.label}</span>` : ''}`;
+    el.title = m.title ?? m.label;
+    return new this.ml.Marker({ element: el, anchor: m.label ? 'left' : 'center', offset: m.label ? [-5, 0] : [0, 0] })
+      .setLngLat(m.lngLat).addTo(this.map);
   }
 
   #style() { return this.basemaps[this.basemapId].style(this.dark); }

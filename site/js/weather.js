@@ -1,6 +1,8 @@
-// Weather + air quality for Socorro from Open-Meteo, cached in localStorage.
-import { SOCORRO, TZ, WX_MAX_AGE_MIN, WX_MIN_UPDATE_MIN } from './config.js';
+// Weather + air quality from Open-Meteo for the location (Socorro by default),
+// cached in localStorage.
+import { WX_MAX_AGE_MIN, WX_MIN_UPDATE_MIN } from './config.js';
 import { makeChart, bars, fmtTime } from './charts.js';
+import { getLocation, onLocation } from './location.js';
 
 const CACHE_KEY = 'wx:v3';
 const UNITS_KEY = 'wx:units';
@@ -32,8 +34,10 @@ const AQ_HOURLY = [
 const PAST_DAYS = 1, FORECAST_DAYS = 7, AQ_FORECAST_DAYS = 5;
 
 function urls() {
-  const common = `latitude=${SOCORRO.lat}&longitude=${SOCORRO.lon}` +
-    `&timezone=${encodeURIComponent(TZ)}&timeformat=unixtime&past_days=${PAST_DAYS}`;
+  // The timezone sets where Open-Meteo's daily values (highs, lows, sunrise) split days.
+  const { lat, lon, tz } = getLocation();
+  const common = `latitude=${lat}&longitude=${lon}` +
+    `&timezone=${encodeURIComponent(tz)}&timeformat=unixtime&past_days=${PAST_DAYS}`;
   return {
     forecast: `https://api.open-meteo.com/v1/forecast?${common}&forecast_days=${FORECAST_DAYS}` +
       `&minutely_15=${MINUTELY_15}&hourly=${HOURLY}&daily=${DAILY}`,
@@ -117,6 +121,8 @@ async function fetchStale(need) {
   const c = store.get(CACHE_KEY) || {};
   const next = { ...c, urls: { ...c.urls }, fetched: { ...c.fetched }, cost: { ...c.cost },
     runs: { ...c.runs, ...need.runs } };
+  // Never keep a dataset from another location (if its refetch fails, it is missing).
+  ['forecast', 'air'].forEach((k) => { if (next.urls[k] !== u[k]) delete next[k]; });
   const jobs = ['forecast', 'air'].filter((k) => need[k]).map(async (k) => {
     const r = await fetchJSON(u[k]);
     next[k] = r.json; next.urls[k] = u[k]; next.fetched[k] = Date.now(); next.cost[k] = r.cost;
@@ -133,9 +139,16 @@ async function fetchStale(need) {
 
 /** When Update is available again (ms), or null if it is now. */
 function updateBlockedUntil(c = store.get(CACHE_KEY)) {
+  // The location changed since the last check: no reason to wait. (A failed check for
+  // the new location still waits: `checkedFor` is what it asked for.)
+  const target = c?.checkedFor ?? c?.urls?.forecast;
+  if (target && target !== urls().forecast) return null;
   const until = (c?.checked ?? 0) + WX_MIN_UPDATE_MIN * 60e3;
   return Date.now() < until ? until : null;
 }
+
+/** Whether a stored cache was fetched for the location in use. */
+const forHere = (c) => c?.urls?.forecast === urls().forecast;
 
 /** Merge `fields` into the stored cache (whatever another tab wrote meanwhile). */
 const patchStore = (fields) => {
@@ -319,14 +332,17 @@ export function initWeather(root) {
   setInterval(() => { if (!inflight) updateStatus(root); }, 30e3);  // ages and the Update button's state
   // Another tab updated (or cleared the cache): show its data.
   window.addEventListener('storage', (e) => { if (e.key === CACHE_KEY && !inflight) syncFromStore(root); });
+  // Stored data for another location is not shown; Update fetches the new one.
+  onLocation(() => { if (!inflight) syncFromStore(root); });
 }
 
 /** Show the data in localStorage (if new to this tab) and its state. */
 function syncFromStore(root) {
-  const c = store.get(CACHE_KEY);
+  let c = store.get(CACHE_KEY);
+  if (c?.forecast && !forHere(c)) c = null;
   if (c?.forecast && c.fetchedAt !== current?.fetchedAt) { current = c; render(root); return; }
   if (!c?.forecast) {
-    // Nothing stored (or the cache was cleared): empty the section.
+    // Nothing stored for this location (or the cache was cleared): empty the section.
     current = null;
     charts.forEach((ch) => ch.destroy()); charts = [];
     ['#wx-now', '#wx-daily', '#wx-charts'].forEach((s) => { root.querySelector(s).innerHTML = ''; });
@@ -342,7 +358,7 @@ async function update(root) {
   if (inflight || updateBlockedUntil()) { if (!inflight) syncFromStore(root); return; }
   const status = root.querySelector('#wx-status');
   // Recorded before anything is sent, so other tabs wait too.
-  patchStore({ checked: Date.now() });
+  patchStore({ checked: Date.now(), checkedFor: urls().forecast });
   inflight = (async () => {
     status.classList.remove('error');
     status.textContent = 'Checking Open-Meteo for newer model runs…';
@@ -358,8 +374,13 @@ async function update(root) {
     render(root);
   })().catch((err) => {
     const c = patchStore({ error: err.message });
-    if (c.forecast) current = c;
-  }).finally(() => { inflight = null; updateStatus(root); });
+    if (c.forecast && forHere(c)) current = c;
+  }).finally(() => {
+    inflight = null;
+    // The location changed while this Update ran: what it fetched is for the old one.
+    if (current && !forHere(current)) syncFromStore(root);
+    else updateStatus(root);
+  });
   return inflight;
 }
 
@@ -396,7 +417,9 @@ function updateStatus(root) {
   el.classList.toggle('error', Boolean(err));
   if (!current) {
     el.textContent = err ? `Couldn't download the weather from Open-Meteo: ${err}.${wait || ' Press Update to try again.'}`
-      : `No weather data is stored in this browser.${wait || ' Press Update to download it from Open-Meteo.'}`;
+      : stored?.forecast && !forHere(stored)
+        ? `The weather stored in this browser is for another location. Press Update to download it for ${getLocation().short === 'Here' ? 'your location' : getLocation().name}.`
+        : `No weather data is stored in this browser.${wait || ' Press Update to download it from Open-Meteo.'}`;
     el.title = '';
     return;
   }
@@ -477,10 +500,11 @@ function nearestIdx(arr, v) {
 
 function renderDaily(el) {
   const d = current.forecast.daily;
+  const TZ = getLocation().tz;
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: TZ }).format(new Date());
   const dayFmt = new Intl.DateTimeFormat('en-US', { timeZone: TZ, weekday: 'short' });
   const tFmt = new Intl.DateTimeFormat('en-US', { timeZone: TZ, hour: 'numeric', minute: '2-digit', hour12: true });
-  // Sunrise is always AM and sunset PM in Socorro, so drop the suffix to save width.
+  // Sunrise is AM and sunset PM in the location's own timezone, so drop the suffix to save width.
   const hm = (sec) => tFmt.format(new Date(sec * 1000)).replace(/\s?[AP]M$/, '');
   el.innerHTML = d.time.map((t, i) => {
     const date = new Date(t * 1000);
@@ -540,7 +564,8 @@ function renderCharts(el) {
       yValues: def.yValues,
       ySplits: def.ySplits,
       syncKey: 'wx',
-      timeLabel: 'MT',
+      tz: getLocation().tz,
+      timeLabel: getLocation().tzLabel,
       now: () => Date.now() / 1000,
       shade: () => night,
       xRange: () => xRange(current),

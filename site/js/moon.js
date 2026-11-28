@@ -1,37 +1,44 @@
-// Moon section: lunar calendar for Socorro. Everything is computed in the
+// Moon section: lunar calendar for the location (Socorro by default). Everything is computed in the
 // browser with Astronomy Engine; nothing is downloaded.
 //
 // Rise/set use the Moon's upper limb with standard refraction (Astronomy
 // Engine's SearchRiseSet). The chart and the dark-hours count use the geometric
 // elevation of the Moon's centre.
-import { MOON, TZ } from './config.js';
+import { MOON } from './config.js';
 import { makeChart } from './charts.js';
+import { getLocation, onLocation } from './location.js';
 
 const A = () => globalThis.Astronomy;
 const DAY = 86400e3;
 
 let root, obs, chart = null, grid = null, days = [];
 
-// ---------- time helpers (calendar days in MT) ----------
-const isoFmt = new Intl.DateTimeFormat('en-CA', { timeZone: TZ });
-const hmFmt = new Intl.DateTimeFormat('en-US', { timeZone: TZ, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
-const dowFmt = new Intl.DateTimeFormat('en-US', { timeZone: TZ, weekday: 'short' });
-const mdFmt = new Intl.DateTimeFormat('en-US', { timeZone: TZ, month: 'numeric', day: 'numeric' });
-const dateFmt = new Intl.DateTimeFormat('en-US', { timeZone: TZ, weekday: 'short', month: 'short', day: 'numeric' });
-const longFmt = new Intl.DateTimeFormat('en-US', { timeZone: TZ, month: 'short', day: 'numeric', year: 'numeric' });
+// ---------- time helpers (calendar days in the location's timezone, TZ) ----------
+// TZ is MT for Socorro and the browser's own zone for the current location.
+let TZ, isoFmt, hmFmt, dowFmt, mdFmt, dateFmt, longFmt, offFmt;
+function setTZ(tz) {
+  TZ = tz;
+  const f = (loc, o) => new Intl.DateTimeFormat(loc, { timeZone: tz, ...o });
+  isoFmt = f('en-CA', {});
+  hmFmt = f('en-US', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+  dowFmt = f('en-US', { weekday: 'short' });
+  mdFmt = f('en-US', { month: 'numeric', day: 'numeric' });
+  dateFmt = f('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  longFmt = f('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  offFmt = f('en-US', { hourCycle: 'h23', year: 'numeric', month: 'numeric', day: 'numeric',
+    hour: 'numeric', minute: 'numeric', second: 'numeric' });
+}
+setTZ(getLocation().tz);
 const hm = (d) => (d ? hmFmt.format(d) : '—');
 const when = (d) => `${dateFmt.format(d)} ${hm(d)}`;
 
 /** UTC offset (ms) of TZ at instant `ms`. */
 function tzOffset(ms) {
-  const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
-    timeZone: TZ, hourCycle: 'h23', year: 'numeric', month: 'numeric', day: 'numeric',
-    hour: 'numeric', minute: 'numeric', second: 'numeric',
-  }).formatToParts(new Date(ms)).map((x) => [x.type, Number(x.value)]));
+  const p = Object.fromEntries(offFmt.formatToParts(new Date(ms)).map((x) => [x.type, Number(x.value)]));
   return Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second) - Math.floor(ms / 1000) * 1000;
 }
 
-/** Start of the MT calendar day containing `date`, plus `addDays` days. */
+/** Start of the TZ calendar day containing `date`, plus `addDays` days. */
 export function dayStart(date, addDays = 0) {
   const [y, m, d] = isoFmt.format(date).split('-').map(Number);
   const utc = Date.UTC(y, m - 1, d + addDays);
@@ -223,12 +230,13 @@ function drawMoon(c, date, size) {
 // ---------- rendering ----------
 export function initMoon(el) {
   root = el;
-  const o = MOON.observer;
-  obs = new (A().Observer)(o.lat, o.lon, o.height);
+  const setObs = (o) => { obs = new (A().Observer)(o.lat, o.lon, o.height); };
+  setObs(getLocation());
+  onLocation((o) => { setObs(o); setTZ(o.tz); lastBuild = 0; refresh(); });
   loadTexture();
   refresh();
   // Positions change slowly: refresh the summary every minute, the calendar and
-  // chart every 10 min (and when the MT date changes).
+  // chart every 10 min (and when the local date changes).
   setInterval(refresh, 60e3);
   // Collapsing or hiding pauses it; showing it again catches up at once.
   new MutationObserver(refresh).observe(root, { attributes: true, attributeFilter: ['class', 'hidden'] });
@@ -323,7 +331,7 @@ function renderNow(now) {
       apsides.map((a) => `<li>${a.kind === 0 ? 'Perigee' : 'Apogee'} <span>${when(a.time.date)} · ${fmtKm(a.dist_km)}</span></li>`).join('') +
     `</ul></div>` +
     tile('Next eclipse', `${kind}`, `${longFmt.format(ecl.peak.date)} ${hm(ecl.peak.date)} · ${eclEl > 0 ? `visible, Moon ${eclEl.toFixed(0)}° up` : 'not visible here'}`,
-      'Time of greatest eclipse (MT). Visible when the Moon is above the horizon at Socorro then.');
+      `Time of greatest eclipse (${getLocation().tzLabel}). Visible when the Moon is above the horizon at ${getLocation().current ? 'your location' : 'Socorro'} then.`);
 }
 
 function renderDays() {
@@ -357,7 +365,7 @@ function buildChart() {
   chart = makeChart(el, {
     data: [grid.t, grid.el],
     series: [{ label: 'Moon', color: '--moon', fmt: (v) => `${v.toFixed(1)}°` }],
-    tz: TZ, h24: true, timeLabel: 'MT', now: () => Date.now() / 1000,
+    tz: TZ, h24: true, timeLabel: getLocation().tzLabel, now: () => Date.now() / 1000,
     shade: () => grid.night,
     yRange: [0, 90], ySplits: () => [0, 30, 60, 90], yValues: (u, v) => v.map((x) => `${x}°`),
     xSpace: 60,  // whole days: "Wed 11/25" labels need the room on a phone

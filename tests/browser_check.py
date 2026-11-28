@@ -46,13 +46,17 @@ with sync_playwright() as p:
     for prof, opts in PROFILES.items():
         for scheme in ("light", "dark"):
             print(f"\n[{prof} / {scheme}]")
-            ctx = browser.new_context(color_scheme=scheme, **opts)
+            # The browser runs in Pacific time: Socorro mode must still show MT, and the
+            # current location the browser's zone.
+            ctx = browser.new_context(color_scheme=scheme, timezone_id="America/Los_Angeles", **opts)
             pg = ctx.new_page()
             errors, wx_reqs = [], []
+            failing = []   # URL prefixes made to fail on purpose (their 503s are not page errors)
             pg.on("pageerror", lambda e: errors.append(str(e)))
             # The S3 mock answers 503 on purpose (there is no .om mock): not a page error.
             pg.on("console", lambda m: errors.append(m.text) if m.type == "error"
-                  and not ("Failed to load resource" in m.text and S3.match(m.location.get("url", ""))) else None)
+                  and not ("Failed to load resource" in m.text and (S3.match(m.location.get("url", ""))
+                           or any(m.location.get("url", "").startswith(u) for u in failing))) else None)
             # Data requests only (cost API calls); model meta.json checks are free.
             pg.on("request", lambda r: wx_reqs.append(r.url) if "open-meteo" in r.url and "/v1/" in r.url else None)
             tle_reqs = []
@@ -414,6 +418,60 @@ with sync_playwright() as p:
             widths = pg.evaluate("""[...document.querySelectorAll('#wx-charts .chart')].slice(0, 3)
                 .map(c => [c.clientWidth, c.querySelector('canvas').getBoundingClientRect().width])""")
             check("charts fit after expanding", all(abs(a - b) <= 2 for a, b in widths), str(widths))
+
+            # Location: Socorro by default; Settings can switch to the browser's location
+            # (a mocked fix in Albuquerque), which only takes effect for weather on Update.
+            heads = lambda: [pg.text_content(f"#{h} [data-loc-name]") for h in ("sat-h", "moon-h", "wx-h")]
+            tzs = lambda: pg.eval_on_selector_all("[data-tz-label]", "els => els.map(e => e.textContent)")
+            check("location: Socorro by default", heads() == ["Socorro"] * 3, str(heads()))
+            check("location: Socorro times in MT", set(tzs()) == {"MT"} and "MT" in pg.inner_text("#sat-passes th.col-rise"),
+                  f"{tzs()}, {pg.inner_text('#sat-passes th.col-rise')}")
+            check("weather requested in MT", wx_reqs and all("timezone=America%2FDenver" in u for u in wx_reqs))
+            check("weather requested for Socorro", wx_reqs and all("latitude=34.0664&longitude=-106.9065" in u for u in wx_reqs),
+                  wx_reqs[-1][:120] if wx_reqs else "none")
+            ctx.grant_permissions(["geolocation"], origin=args.url.rstrip("/"))
+            ctx.set_geolocation({"latitude": 35.08441, "longitude": -106.65041, "accuracy": 30})
+            pg.click("#open-settings")
+            pg.click('#set-location button[data-loc="current"]')
+            pg.wait_for_function("document.querySelector('#wx-h [data-loc-name]').textContent === 'Here'", timeout=10000)
+            check("location: headings say Here", heads() == ["Here"] * 3, str(heads()))
+            check("location: times in the browser's timezone", set(tzs()) == {"PT"}
+                  and "PT" in pg.inner_text("#sat-passes th.col-rise") and "America/Los_Angeles" in pg.inner_text("#set-location-status"),
+                  f"{tzs()}, {pg.inner_text('#sat-passes th.col-rise')}")
+            check("location: settings status", "35.08°N 106.65°W" in pg.inner_text("#set-location-status"),
+                  pg.inner_text("#set-location-status"))
+            pg.keyboard.press("Escape")
+            check("location: other location's weather hidden", "another location" in pg.inner_text("#wx-status")
+                  and not pg.locator("#wx-charts .uplot").count(), pg.inner_text("#wx-status")[:100])
+            check("location: Update not blocked by the 5 min wait", pg.is_enabled("#wx-update"))
+            # A failed Update for the new location: old weather stays hidden, and the wait applies.
+            fail = lambda route: route.fulfill(status=503, body="down")
+            pg.route("https://api.open-meteo.com/v1/**", fail); failing.append("https://api.open-meteo.com/v1/")
+            pg.click("#wx-update")
+            pg.wait_for_function("document.querySelector('#wx-status').classList.contains('error')", timeout=10000)
+            check("location: failed Update shows no other location's weather",
+                  not pg.locator("#wx-charts .uplot").count() and "Couldn't download" in pg.inner_text("#wx-status"),
+                  pg.inner_text("#wx-status")[:100])
+            check("location: failed Update still waits 5 min", pg.is_disabled("#wx-update"))
+            pg.unroute("https://api.open-meteo.com/v1/**", fail)
+            pg.evaluate("(() => { const c = JSON.parse(localStorage.getItem('wx:v3')); delete c.checked; delete c.error;"
+                        " localStorage.setItem('wx:v3', JSON.stringify(c)); })()")
+            pg.reload(); pg.wait_for_timeout(1000)
+            n_wx = len(wx_reqs)
+            pg.click("#wx-update")
+            pg.wait_for_function("document.querySelectorAll('#wx-charts .uplot').length > 10", timeout=15000)
+            new = wx_reqs[n_wx:]
+            check("location: weather requested for the new location",
+                  len(new) == 2 and all("latitude=35.0844&longitude=-106.6504" in u and "timezone=America%2FLos_Angeles" in u
+                                        for u in new), "; ".join(new)[:200])
+            check("location: weather chart time in PT", "Time (PT)" in pg.inner_text("#wx-charts"), "")
+            check("location: passes recomputed", pg.locator("#sat-passes tbody tr").count() >= 1)
+            pg.click("#open-settings")
+            pg.click('#set-location button[data-loc="socorro"]')
+            pg.keyboard.press("Escape")
+            check("location: back to Socorro", heads() == ["Socorro"] * 3 and set(tzs()) == {"MT"}, f"{heads()}, {tzs()}")
+            pg.click("#wx-update")
+            pg.wait_for_function("document.querySelectorAll('#wx-charts .uplot').length > 10", timeout=15000)
 
             # Settings (footer button): reorder + theme override persist across reload.
             pg.click("#open-settings")

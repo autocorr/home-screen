@@ -1,4 +1,5 @@
-// Precipitation & radar map section, over a cut-out around Socorro on an
+// Precipitation & radar map section, over a cut-out around Socorro (and the
+// VLA; it stays there whatever the location setting) on an
 // OpenStreetMap basemap:
 //   - Precip: Open-Meteo model precipitation rate (RRFS or NBM).
 //   - Radar:  observed reflectivity (IEM NEXRAD mosaic) for the past hours,
@@ -9,7 +10,7 @@
 // view shows the run and scans the last Update found (kept in localStorage when
 // storage is on disk, else in this tab's memory), and Update then waits
 // PRECIP_MAP.minUpdateMin minutes (per view, shared by every tab).
-import { PRECIP_MAP, SOCORRO, TZ } from './config.js';
+import { PRECIP_MAP, SOCORRO } from './config.js';
 import { getUnitSystem } from './weather.js';
 import { BASEMAPS, DEFAULT_BASEMAP } from './map/basemaps.js';
 import { MapView, renderLegend, stitchLayers } from './map/view.js';
@@ -19,6 +20,7 @@ import { colorScaleOverrides, REFLECTIVITY_SCALE } from './map/colormaps.js';
 import { CLUTTER } from './data/clutter.js';
 import { createBlockCache } from './map/storage.js';
 import { askStorage, useDisk, onStoragePref } from './storage.js';
+import { getLocation, onLocation } from './location.js';
 
 const PREFS_KEY = 'precip:v1';
 const DATA_KEY = 'precip:data:v1';   // { [layer id]: { tried, fetched, snap } }
@@ -89,9 +91,17 @@ const isDark = () => {
   return t ? t === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
 };
 
-const dtFmt = new Intl.DateTimeFormat('en-US', { timeZone: TZ, weekday: 'short', hour: 'numeric', minute: '2-digit', hour12: false });
+// Times in the location's timezone (MT for Socorro, the browser's for the current location).
+const fmts = new Map();
+const tzFmt = (kind, o) => {
+  const { tz } = getLocation(), key = `${kind}|${tz}`;
+  if (!fmts.has(key)) fmts.set(key, new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: 'numeric', minute: '2-digit', hour12: false, ...o }));
+  return fmts.get(key);
+};
+const dtFmt = { format: (d) => tzFmt('dt', { weekday: 'short' }).format(d) };
+const hmFmt = { format: (d) => tzFmt('hm', {}).format(d) };
+const tzLabel = () => getLocation().tzLabel;
 const runFmt = (d) => `${String(d.getUTCHours()).padStart(2, '0')}Z`;
-const hmFmt = new Intl.DateTimeFormat('en-US', { timeZone: TZ, hour: 'numeric', minute: '2-digit', hour12: false });
 const leadFmt = (ms) => {
   const m = Math.round(ms / 60e3);
   return `+${Math.floor(m / 60)}${m % 60 ? `:${String(m % 60).padStart(2, '0')}` : ''} h`;
@@ -194,15 +204,15 @@ function describe() {
     const [obs, ...fc] = layers;
     const loaded = fc.filter((l) => l.run);
     data = [
-      obs.newest ? `Radar to ${hmFmt.format(obs.newest)} MT` : 'No observed radar',
+      obs.newest ? `Radar to ${hmFmt.format(obs.newest)} ${tzLabel()}` : 'No observed radar',
       loaded.length ? `RRFS ${loaded[0].fixed ? 'archived' : 'runs'} ${loaded.map((l) => runFmt(l.run)).join(', ')}`
         : 'No RRFS forecast',
     ].join(' · ');
-    detail = loaded.map((l) => `${l.short}: run ${runFmt(l.run)} (${dtFmt.format(l.run)} MT)`).join('\n') + '\n';
+    detail = loaded.map((l) => `${l.short}: run ${runFmt(l.run)} (${dtFmt.format(l.run)} ${tzLabel()})`).join('\n') + '\n';
   } else {
     const [layer] = layers;
     const model = PRECIP_MAP.models.find((m) => m.id === prefs.model);
-    data = layer?.run ? `${model.label} ${layer.fixed ? 'archived ' : ''}run ${runFmt(layer.run)} (${dtFmt.format(layer.run)} MT)` : model.label;
+    data = layer?.run ? `${model.label} ${layer.fixed ? 'archived ' : ''}run ${runFmt(layer.run)} (${dtFmt.format(layer.run)} ${tzLabel()})` : model.label;
   }
   const got = layers.map((l) => held.get(l.id)?.fetched).filter(Boolean);
   const updated = !FIXED_RUN && got.length ? ` · updated ${ago(Math.min(...got))}` : '';
@@ -257,16 +267,40 @@ async function show(i) {
     what = `${step >= 60 ? `${step / 60} h` : `${step} min`} ending` +
       `${layer.run ? ` · +${Math.round((t - layer.run) / 3600e3)} h` : ''}${t < Date.now() ? ' · past' : ''}`;
   }
-  els.time.innerHTML = `<b>${dtFmt.format(t)} MT</b> <span class="muted">· ${what}</span>`;
+  els.time.innerHTML = `<b>${dtFmt.format(t)} ${tzLabel()}</b> <span class="muted">· ${what}</span>`;
   const done = view.setTime(t);
   updateProbe();
   return done;
 }
 
+const inBounds = ({ lat, lon }) => {
+  const [w, so, e, n] = PRECIP_MAP.bounds;
+  return lon >= w && lon <= e && lat >= so && lat <= n;
+};
+
+/** The readout's default point: the location in use if it is on the map, else Socorro. */
+function homePoint() {
+  const loc = getLocation();
+  return loc.current && inBounds(loc) ? { lng: loc.lon, lat: loc.lat, label: 'Here' }
+    : { lng: SOCORRO.lon, lat: SOCORRO.lat, label: 'Socorro' };
+}
+
+/** A "Here" marker at the current location, when that is in use and on the map. */
+let hereMarker = null;
+function placeHereMarker() {
+  hereMarker?.remove(); hereMarker = null;
+  const loc = getLocation();
+  // Not on top of Socorro's own marker.
+  const nearSocorro = Math.hypot(loc.lat - SOCORRO.lat, (loc.lon - SOCORRO.lon) * Math.cos(SOCORRO.lat * Math.PI / 180)) * 111 < 3;
+  if (view && loc.current && inBounds(loc) && !nearSocorro) {
+    hereMarker = view.addMarker({ label: 'Here', title: loc.name, lngLat: [loc.lon, loc.lat] });
+  }
+}
+
 async function updateProbe() {
   const layer = view && layerAt(view.time);
   const frame = layer && view.frameOf(layer.id);
-  const p = probe ?? { lng: SOCORRO.lon, lat: SOCORRO.lat, label: 'Socorro' };
+  const p = probe ?? homePoint();
   if (!frame) { els.value.textContent = ''; return; }
   const key = frame.key;
   await view.whenReady();  // values are sampled from the loaded frame data
@@ -444,6 +478,7 @@ async function load() {
       probe = { lng: ll.lng, lat: ll.lat, label: `${ll.lat.toFixed(2)}°, ${ll.lng.toFixed(2)}°` };
       updateProbe();
     });
+    placeHereMarker();
     await view.ready;
     await setQuantity(prefs.quantity);
     setInterval(() => { if (!updating && layers.length) describe(); }, TICK_MS);
@@ -492,6 +527,7 @@ export function initPrecip(section) {
   els.prev.addEventListener('click', () => { if (view) { stop(); show(idx - 1); } });
   els.next.addEventListener('click', () => { if (view) { stop(); show(idx + 1); } });
   els.now.addEventListener('click', () => { stop(); probe = null; show(nowIndex()); });
+  onLocation(() => { placeHereMarker(); if (layers.length) { show(idx); describe(); } });
   // The °F/°C switch in the weather section sets units here too: legend, readout, scale bar.
   window.addEventListener('units-change', () => {
     view?.setUnits(getUnitSystem());
