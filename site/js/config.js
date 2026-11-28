@@ -6,8 +6,10 @@ export const TZ = 'America/Denver';
 // VLA array centre (astropy EarthLocation.of_site('vla')).
 export const VLA = { name: 'VLA', lat: 34.078749, lon: -107.618283, height: 2124 };
 
-// Weather location: New Mexico Tech campus, Socorro, NM.
-export const SOCORRO = { name: 'Socorro, NM', lat: 34.0664, lon: -106.9065 };
+// Default location for the satellites, Moon, weather and map readout: New Mexico
+// Tech campus, Socorro, NM. Settings → Location can use the browser's current
+// location instead (site/js/location.js).
+export const SOCORRO = { name: 'Socorro, NM', lat: 34.0664, lon: -106.9065, height: 1400 };  // m
 
 // J2000 positions from the VLA calibrator list.
 // `color` is a CSS custom property defined in css/style.css.
@@ -27,7 +29,7 @@ export const VLA_EL_LIMIT = 8;
 // Sky track window relative to now (hours) and sampling step (minutes).
 export const SKY_WINDOW = { before: 12, after: 12, stepMin: 5 };
 
-// Satellites section (site/js/sats.js): passes over Socorro of CelesTrak's
+// Satellites section (site/js/sats.js): passes over the location (Socorro by default) of CelesTrak's
 // "visual" group (~150 of the brightest satellites), from orbital elements
 // (TLEs) propagated with SGP4 in the browser. Satellites are keyed by NORAD
 // catalog number.
@@ -38,7 +40,6 @@ export const SKY_WINDOW = { before: 12, after: 12, stepMin: 5 };
 // in objects it lacks, and anything else gets `defaultStdMag`. These are rough: flat antenna arrays
 // (BlueBird, BlueWalker) can differ from the estimate by a magnitude or more.
 export const SATS = {
-  observer: { ...SOCORRO, height: 1400 },   // m
   group: 'visual',     // CelesTrak group fetched in one request
   extra: [53807],      // also fetched, by number: not in the group
   names: {             // display names; others use CelesTrak's name
@@ -62,11 +63,10 @@ export const SATS = {
   darkSunEl: -6,       // the sky counts as dark (satellites visible) when the Sun is below this
 };
 
-// Moon section (site/js/moon.js): lunar calendar for Socorro, computed in the
-// browser with Astronomy Engine (no downloads).
+// Moon section (site/js/moon.js): lunar calendar for the location (Socorro by
+// default), computed in the browser with Astronomy Engine (no downloads).
 export const MOON = {
-  observer: { ...SOCORRO, height: 1400 },  // m
-  days: 7,             // calendar days shown, starting today (MT)
+  days: 7,             // calendar days shown, starting today (in the location's timezone)
   darkSunEl: -18,      // "dark" = Sun below this (astronomical twilight) and Moon below the horizon
   stepMin: 10,         // sampling step for the elevation chart and dark hours
 };

@@ -8,6 +8,7 @@ import { initLinks } from './links.js';
 import { initCalc } from './calc.js';
 import { initPrecip, rerender as rerenderPrecip } from './precip.js';
 import { initStorageSettings } from './storage.js';
+import { initLocation } from './location.js';
 
 const $ = (id) => document.getElementById(id);
 const safe = (id, fn) => {
@@ -21,6 +22,7 @@ const safe = (id, fn) => {
 const rerenderCharts = () => { rerenderSky(); rerenderSats(); rerenderMoon(); rerenderWeather($('weather')); rerenderPrecip(); };
 
 safe('settings', () => initSettings(rerenderCharts));
+safe('location', () => initLocation($('settings')));
 safe('clocks', () => initClocks($('clocks'), $('world')));
 safe('sky', () => initSky($('sky')));
 safe('sats', () => initSats($('sats')));

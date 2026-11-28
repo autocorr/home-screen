@@ -10,13 +10,13 @@ Sections can be collapsed by tapping their heading, and reordered or hidden with
 - **World time**: Japan, Germany, India (offset shown relative to MT).
 - **Sky at the VLA**: table (El, Az, HA, Sun separation, next rise/set), polar sky view,
   and elevation/azimuth vs time for 3C48, 3C84, 3C138, 3C147, 3C286, Sun and Moon over ±12 h.
-- **Satellites · Socorro**: passes of CelesTrak's ~150 brightest satellites, trimmed by
+- **Satellites**: passes of CelesTrak's ~150 brightest satellites, trimmed by
   a magnitude-cutoff slider. A sky view (stars to magnitude 4, constellation figures, Sun,
   Moon and planets) sits above an elevation-vs-time chart: a 2 h window that pans through
   the next 48 h. Below them are the brightest (or soonest) passes and a table of ISS passes
   for the next 7 days, all with estimated peak brightness. Hover or tap the chart to move the
   sky view to that time; tap a pass to centre the chart on it.
-- **Moon · Socorro**: a lunar calendar for the next 7 days, computed in the browser (nothing
+- **Moon**: a lunar calendar for the next 7 days, computed in the browser (nothing
   is downloaded). Now: phase, illumination, age, elevation, distance, constellation and
   libration, the next principal phases, perigee and apogee, and the next lunar eclipse.
   Each day: the phase at noon, moonrise, transit (time and elevation) and moonset, principal
@@ -24,7 +24,7 @@ Sections can be collapsed by tapping their heading, and reordered or hidden with
   starting that day (hover for the times). Below, the Moon's elevation over the 7 days.
   The Moon is drawn from NASA's LRO map of its surface (`data/moon_lroc_1k.jpg`), with
   celestial north up, the actual libration and the terminator where the Sun puts it.
-- **Weather · Socorro**: current conditions, 7-day summary, and hourly charts from
+- **Weather**: current conditions, 7-day summary, and hourly charts from
   [Open-Meteo](https://open-meteo.com/) (temperature, precipitation, cloud layers, wind,
   humidity, precipitable water, pressure, UV, solar radiation, visibility, CAPE,
   freezing level, AQI, particulates, gases, AOD).
@@ -44,6 +44,17 @@ Sections can be collapsed by tapping their heading, and reordered or hidden with
 
 The theme follows the OS light/dark preference by default; Settings can override it.
 
+**Location.** The satellites, Moon and weather sections and the map readout use Socorro
+by default. Settings → Location can switch them to the browser's current location (the
+browser asks for permission first). The fix is stored only in this browser. With
+permission already granted, it is refreshed in the background on each load. The VLA sky
+and sidereal time always use the VLA. With the current location, those sections also show
+times in the browser's timezone (and the weather's daily values follow its days); the
+clocks and the VLA sky stay in Mountain Time. The map keeps its
+cut-out around Socorro: it marks your location and reads values there only when you are
+inside it. Weather stored for one location is not shown for another, and Update fetches
+the new one straight away (the 5-minute wait doesn't apply).
+
 ## Layout
 
 ```
@@ -51,6 +62,7 @@ site/
   index.html          page skeleton
   css/style.css       all styles; colour tokens for light & dark
   js/config.js        locations, sources, world clocks, links, section list  <- edit here
+  js/location.js      location in use (Socorro or the browser's), Settings → Location
   js/astro.js         pure astronomy helpers (no DOM)
   js/sky.js           sky table, polar plot, el/az charts
   js/sats.js          satellites section: sky view canvas, pass chart, tables, cutoff slider

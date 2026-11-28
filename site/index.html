@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Home Screen</title>
-  <meta name="description" content="Clocks, VLA sky positions, satellite passes and Socorro weather">
+  <meta name="description" content="Clocks, VLA sky positions, satellite passes and local weather">
   <meta name="theme-color" content="#f5f0e6" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📡</text></svg>">
@@ -85,9 +85,9 @@
 
   <section id="sats" data-section="sats" class="panel" aria-labelledby="sat-h">
     <header class="section-head">
-      <h2 id="sat-h"><button class="section-toggle" aria-expanded="true" aria-controls="sat-body">Satellites · Socorro</button></h2>
+      <h2 id="sat-h"><button class="section-toggle" aria-expanded="true" aria-controls="sat-body">Satellites · <span data-loc-name>Socorro</span></button></h2>
       <div class="seg head-controls" id="sat-tz" role="group" aria-label="Time axis">
-        <button data-tz="America/Denver">MT</button><button data-tz="UTC">UTC</button>
+        <button data-tz="local"><span data-tz-label>MT</span></button><button data-tz="UTC">UTC</button>
       </div>
     </header>
     <div class="section-body" id="sat-body">
@@ -99,7 +99,7 @@
       <div class="sat-grid">
         <figure class="chart-card sat-polar-card">
           <figcaption title="As seen lying on your back with your head to the north. Hover or drag the elevation chart to move through time.">Sky view <span class="unit">(N up, E left, as seen looking up · stars to mag 4)</span></figcaption>
-          <canvas id="sat-polar" role="img" aria-label="Sky view from Socorro with stars, constellations, planets and satellite passes"></canvas>
+          <canvas id="sat-polar" role="img" aria-label="Sky view from the selected location with stars, constellations, planets and satellite passes"></canvas>
           <p id="sat-polar-info" class="polar-info"></p>
         </figure>
         <figure class="chart-card sat-el-card">
@@ -150,18 +150,18 @@
 
   <section id="moon" data-section="moon" class="panel" aria-labelledby="moon-h">
     <header class="section-head">
-      <h2 id="moon-h"><button class="section-toggle" aria-expanded="true" aria-controls="moon-body">Moon · Socorro</button></h2>
+      <h2 id="moon-h"><button class="section-toggle" aria-expanded="true" aria-controls="moon-body">Moon · <span data-loc-name>Socorro</span></button></h2>
     </header>
     <div class="section-body" id="moon-body">
       <div id="moon-now" class="tiles moon-tiles"></div>
       <div id="moon-days" class="daily moon-days"></div>
-      <figure class="chart-card"><figcaption>Moon elevation <span class="unit">(MT · shaded: Sun below the horizon)</span></figcaption><div class="chart" id="moon-el"></div></figure>
+      <figure class="chart-card"><figcaption>Moon elevation <span class="unit">(<span data-tz-label>MT</span> · shaded: Sun below the horizon)</span></figcaption><div class="chart" id="moon-el"></div></figure>
     </div>
   </section>
 
   <section id="weather" data-section="weather" class="panel" aria-labelledby="wx-h">
     <header class="section-head">
-      <h2 id="wx-h"><button class="section-toggle" aria-expanded="true" aria-controls="wx-body">Weather · Socorro</button></h2>
+      <h2 id="wx-h"><button class="section-toggle" aria-expanded="true" aria-controls="wx-body">Weather · <span data-loc-name>Socorro</span></button></h2>
       <div class="controls head-controls">
         <div class="seg" id="wx-units" role="group" aria-label="Units">
           <button data-units="imperial">°F</button><button data-units="metric">°C</button>
@@ -203,7 +203,7 @@
         <button type="button" id="pm-prev" class="icon-btn" aria-label="Previous time step" title="Previous time step" disabled>‹</button>
         <input type="range" id="pm-slider" min="0" max="0" value="0" aria-label="Time" disabled>
         <button type="button" id="pm-next" class="icon-btn" aria-label="Next time step" title="Next time step" disabled>›</button>
-        <button type="button" id="pm-now" class="btn" title="Jump to now and reset the readout to Socorro">Now</button>
+        <button type="button" id="pm-now" class="btn" title="Jump to now and reset the readout to your location (Socorro unless set in Settings)">Now</button>
       </div>
       <div class="map-info">
         <p id="pm-time" class="map-time-label"></p>
@@ -267,6 +267,17 @@
     <div class="set-actions">
       <button type="button" id="set-expand-all" class="btn">Expand all</button>
       <button type="button" id="set-clear-cache" class="btn">Clear weather cache</button>
+    </div>
+    <div>
+      <h3>Location</h3>
+      <p class="note">Used by the satellites, Moon and weather sections and the map readout. With the current location, these sections show times in this browser's timezone instead of Mountain Time. The clocks and the VLA sky always use the VLA and Mountain Time. Current location asks for the browser's permission; the position is stored only in this browser.</p>
+      <div class="set-row">
+        <div class="seg" id="set-location" role="group" aria-label="Location">
+          <button type="button" data-loc="socorro">Socorro</button><button type="button" data-loc="current">Current location</button>
+        </div>
+        <button type="button" id="set-location-refresh" class="btn" hidden>Refresh</button>
+      </div>
+      <p id="set-location-status" class="note"></p>
     </div>
     <div>
       <h3>Data storage</h3>

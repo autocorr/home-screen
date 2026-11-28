@@ -1,4 +1,4 @@
-// Satellites section: a sky view from Socorro (stars to mag 4, constellation
+// Satellites section: a sky view from the location (Socorro by default; stars to mag 4, constellation
 // figures, Sun, Moon, planets and satellite passes) above an elevation-vs-time
 // chart, a list of the brightest passes and a week of ISS passes. The chart
 // shows a 2 h window that pans by dragging or scrolling sideways; hovering or
@@ -8,12 +8,13 @@
 // in a worker (site/js/sats-worker.js). A pass is shown when it is visible
 // (above the horizon, sunlit, with the Sun below SATS.darkSunEl) and its
 // estimated peak brightness is at or brighter than the magnitude slider.
-import { SATS, TZ } from './config.js';
+import { SATS } from './config.js';
 import { makeChart, cssVar, fmtTime } from './charts.js';
 import { STARS, STAR_NAMES, LINES, LABELS } from './data/starmap.js';
 import { STD_MAG, STD_MAG_DATE } from './data/satmags.js';
 import { cachedTLE, updateBlocked, refreshTLE, clearTLEHalt, ommEpoch, META_KEY } from './tle.js';
 import { askStorage } from './storage.js';
+import { getLocation, onLocation } from './location.js';
 
 const D2R = Math.PI / 180, R2D = 180 / Math.PI;
 const RE = 6378.137;  // km
@@ -31,7 +32,10 @@ const SAT = () => globalThis.satellite;
 const AE = () => globalThis.Astronomy;
 
 let root, aeObs, gd, obsEcf;
-let tz = pref(KEYS.tz, TZ);
+// Time axis: 'local' (the location's timezone: MT for Socorro, the browser's for the
+// current location) or 'UTC'. Older saves hold 'America/Denver', i.e. local.
+let tzMode = pref(KEYS.tz, 'local') === 'UTC' ? 'UTC' : 'local';
+let tz = 'UTC';  // the IANA zone tzMode stands for; set by syncTZ()
 let sortMode = pref(KEYS.sort, 'mag');
 let weekMode = pref(KEYS.week, 'visible');
 let magCut = (() => {
@@ -58,7 +62,8 @@ const nowSec = () => Date.now() / 1000;
 const mod360 = (a) => ((a % 360) + 360) % 360;
 const fmtMag = (m) => (m == null || !Number.isFinite(m) ? '—' : `${m < 0 ? '−' : ''}${Math.abs(m).toFixed(1)}`);
 const dir8 = (az) => ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'][Math.round(mod360(az) / 45) % 8];
-const tzLabel = () => (tz === 'UTC' ? 'UTC' : 'MT');
+const tzLabel = () => (tzMode === 'UTC' ? 'UTC' : getLocation().tzLabel);
+const syncTZ = () => { tz = tzMode === 'UTC' ? 'UTC' : getLocation().tz; };
 const shown = (p) => p.vis && p.vis.mag != null && p.vis.mag <= magCut && p.vis.maxEl >= SATS.minPassEl;
 
 const hm = new Map();
@@ -135,18 +140,36 @@ function satAt(sat, date, sun) {
 }
 
 // ---------- init & data ----------
-export function initSats(el) {
-  root = el;
-  const o = SATS.observer;
+let observer;
+function setObserver(o) {
+  observer = { lat: o.lat, lon: o.lon, height: o.height };
   aeObs = new (AE().Observer)(o.lat, o.lon, o.height);
   gd = { latitude: o.lat * D2R, longitude: o.lon * D2R, height: o.height / 1000 };
   obsEcf = SAT().geodeticToEcf(gd);
+}
+
+export function initSats(el) {
+  root = el;
+  setObserver(getLocation());
+  syncTZ();
+  onLocation((loc) => {
+    setObserver(loc);
+    syncTZ();
+    // Drop the old location's passes: they must not show (under the new name) until
+    // the worker answers, which waits while the section is collapsed or in the background.
+    selP = null; cursorIdx = null; grid = null; passes = []; week = null;
+    pending = {};
+    buildChart();
+    recompute();
+    renderTables();
+    drawPolar();
+  });
 
   const seg = (id, fn) => root.querySelector(id).addEventListener('click', (e) => {
     const b = e.target.closest('button');
     if (b) fn(b.dataset);
   });
-  seg('#sat-tz', (d) => { tz = d.tz; setPref(KEYS.tz, tz); buildChart(); renderTables(); drawPolar(); });
+  seg('#sat-tz', (d) => { tzMode = d.tz; setPref(KEYS.tz, tzMode); syncTZ(); buildChart(); renderTables(); drawPolar(); });
   root.querySelector('#sat-now').addEventListener('click', () => { viewT0 = null; selP = null; applyView(); renderTables(); });
   seg('#sat-sort', (d) => { sortMode = d.sort; setPref(KEYS.sort, sortMode); renderTables(); });
   seg('#sat-week-mode', (d) => { weekMode = d.mode; setPref(KEYS.week, weekMode); renderTables(); });
@@ -248,7 +271,7 @@ function recompute() {
   });
   const common = {
     sun: { t0, step: sunStep, el: sunEl, v: sunV }, step,
-    obs: SATS.observer, darkSunEl: SATS.darkSunEl, minPassEl: SATS.minPassEl,
+    obs: observer, darkSunEl: SATS.darkSunEl, minPassEl: SATS.minPassEl,
   };
   const list = [...sats.values()].map(({ id, omm, stdMag }) => ({ id, omm, stdMag }));
   pending = { grid: ++seq, gridT: { t, sunEl: gridSunEl }, week: ++seq };
@@ -433,7 +456,7 @@ function bindPan(u) {
 function markButtons() {
   const press = (sel, key, val) => root.querySelectorAll(`${sel} button`).forEach((b) =>
     b.setAttribute('aria-pressed', String(b.dataset[key] === val)));
-  press('#sat-tz', 'tz', tz);
+  press('#sat-tz', 'tz', tzMode);
   press('#sat-sort', 'sort', sortMode);
   press('#sat-week-mode', 'mode', weekMode);
 }
